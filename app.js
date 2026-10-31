@@ -150,7 +150,7 @@ V.listen=async el=>{
   async function playFile(){const c=await AC(),r=await c.match(have());const b=await r.blob();if(furl)URL.revokeObjectURL(furl);furl=URL.createObjectURL(b);
     if(!audio)audio=new Audio();audio.src=furl;audio.onended=()=>setSt('انتهت السورة');audio.onerror=()=>toast('تعذر تشغيل الملف المحفوظ');audio.ontimeupdate=()=>{if(Math.floor(audio.currentTime)%5===0){L.t=audio.currentTime;save('listen')}};
     if(L.fs===L.reciter+':'+L.s&&L.t)audio.currentTime=L.t;L.fs=L.reciter+':'+L.s;await audio.play();mode='file';setSt(`${S.quran[L.s-1].name} — من الجهاز (بدون إنترنت)`);return true}
-  function playAyah(){if(!audio)audio=new Audio();const a=ays()[L.i];if(!a)return stop();audio.ontimeupdate=null;audio.src=`https://cdn.islamic.network/quran/audio/192/${eds(L.reciter)[ei]}/${a.g}.mp3`;
+  function playAyah(){if(!audio)audio=new Audio();const a=ays()[L.i];if(!a)return stop();audio.ontimeupdate=null;audio.src=`https://cdn.islamic.network/quran/audio/128/${eds(L.reciter)[ei]}/${a.g}.mp3`;
     audio.onended=()=>{L.i++;save('listen');L.i<ays().length?playAyah():(L.i=0,save('listen'),setSt('انتهت السورة'))};
     audio.onerror=()=>{if(ei<eds(L.reciter).length-1){ei++;playAyah()}else toast('تعذر تشغيل الصوت. تحقق من الاتصال بالإنترنت.')};
     audio.play().then(()=>{mode='ayah';setSt(`${S.quran[L.s-1].name} — الآية ${ar(L.i+1)} من ${ar(ays().length)} (بث من الإنترنت)`);save('listen')}).catch(()=>toast('تعذر التشغيل'))}
