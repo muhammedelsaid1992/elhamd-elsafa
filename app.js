@@ -6,7 +6,7 @@ const today=()=>Core.ymd(new Date());
 const API='https://api.alquran.cloud/v1/quran/';
 const SRC_TAFSIR='التفسير الميسر — مجمع الملك فهد لطباعة المصحف الشريف (عبر alquran.cloud، الإصدار ar.muyassar)';
 const SRC_QURAN='المصحف بالرسم العثماني (نسخة Tanzil عبر alquran.cloud، الإصدار quran-uthmani)';
-const RECITERS={'ar.alafasy':'مشاري العفاسي','ar.husary':'محمود خليل الحصري','ar.minshawi':'محمد صديق المنشاوي','ar.abdulbasitmurattal':'عبد الباسط عبد الصمد (مرتل)'};
+const RECITERS={'ar.alafasy':'مشاري العفاسي','ar.husary':'محمود خليل الحصري','ar.minshawi':'محمد صديق المنشاوي','ar.abdulbasit':'عبد الباسط عبد الصمد (مرتل)'};
 const CATS={morning:'الصباح والمساء',sleep:'النوم',afterPrayer:'بعد الصلاة'};
 const IA='https://api.islamic.app/v1/';
 const DHIKR=['سبحان الله','الحمد لله','الله أكبر','لا إله إلا الله','أستغفر الله'];
@@ -23,7 +23,7 @@ async function load(){
   if(!S.plan.start){S.plan.start=today();await save('plan')}
   S.dl={adhkar:await DB.get('dl_adhkar',[]),hadith:await DB.get('dl_hadith',[])};S.files={adhkar:[],hadith:[],asbab:[]};
   for(const k in S.files){try{const r=await fetch('data/'+k+'.json');if(r.ok)S.files[k]=await r.json()}catch{}}
-  index();applySettings();
+  if(S.listen.reciter==='ar.abdulbasitmurattal')S.listen.reciter='ar.abdulbasit';index();applySettings();
 }
 const index=()=>{S.starts=S.quran?S.quran.map(s=>s.ayahs[0].g):[];S.pages=S.quran&&S.quran[0].ayahs[0].p?Core.buildPages(S.quran):[]};
 const all=k=>[...S.files[k],...(S.dl[k]||[]),...S.custom[k]];
@@ -124,19 +124,50 @@ V.hadith=el=>{
   const f=()=>{const t=Core.norm($('#hq').value),c=$('#hc').value;$('#hl').innerHTML=list.filter(x=>(!c||x.cat===c)&&(!t||Core.norm(x.text).includes(t))).map(x=>`<div class="card"><p>${esc(x.text)}</p><p class="src">المصدر: ${esc(x.source)}${x.grade?' | الدرجة: '+esc(x.grade):''}${x.cat?' | '+esc(x.cat):''}</p></div>`).join('')||'<p>لا نتائج.</p>'};
   $('#hq').oninput=f;$('#hc').onchange=f;f();
 };
-let audio;
-V.listen=el=>{
+let audio,furl;
+const AUD='https://cdn.islamic.network/quran/audio-surah/',ALT={'ar.abdulbasit':['ar.abdulbasit','ar.abdulbasitmurattal']},eds=r=>ALT[r]||[r];
+let acache;const AC=async()=>acache||(acache=await caches.open('hamd-audio-v1'));
+const adl=async()=>S.adl||(S.adl=await DB.get('audiodl',{}));
+async function dlSurah(rc,n,q,sig){const A=await adl(),c=await AC();let last;
+  for(const ed of eds(rc))for(const br of [q,64,128,192].filter((v,i,x)=>x.indexOf(v)===i)){const u=`${AUD}${br}/${ed}/${n}.mp3`;
+    try{const r=await fetch(u,{signal:sig});if(!r.ok){last=new Error('رمز الاستجابة '+r.status);continue}await c.put(u,r);(A[rc]||(A[rc]={}))[n]=u;await DB.set('audiodl',A);return u}
+    catch(e){if(e.name==='AbortError')throw e;if(e instanceof TypeError)throw new Error('تعذر الاتصال بخادم الصوت (شبكة أو منع من الخادم)');last=e}}
+  throw last||new Error('الملف غير متاح')}
+async function delSurah(rc,n){const A=await adl(),c=await AC(),u=A[rc]&&A[rc][n];if(u)await c.delete(u);if(A[rc])delete A[rc][n];await DB.set('audiodl',A)}
+V.listen=async el=>{
   if(!S.quran)return needData(el);
-  const L=S.listen;
+  const L=S.listen,A=await adl();let ei=0,abort=null,mode='';
   el.innerHTML=`<div class="card"><div class="bar"><select id="rc">${Object.entries(RECITERS).map(([k,v])=>`<option value="${k}"${k===L.reciter?' selected':''}>${v}</option>`).join('')}</select>${surahSel('ls',L.s)}</div>
-  <p id="st" class="src">متوقف</p><div class="bar"><button id="pl">تشغيل / استكمال</button><button class="alt" id="pa">إيقاف مؤقت</button><button class="alt" id="sp">إيقاف</button></div>
-  <div class="note">التشغيل يحتاج إلى اتصال بالإنترنت (الصوت يُبثّ من cdn.islamic.network ولا يُحفظ على الجهاز). نص المصحف والتقدم يعملان دون إنترنت.</div></div>`;
-  const ays=()=>S.quran[L.s-1].ayahs,url=a=>`https://cdn.islamic.network/quran/audio/128/${L.reciter}/${a.g}.mp3`;
-  const lbl=()=>$('#st').textContent=`${S.quran[L.s-1].name} — الآية ${ar(L.i+1)} من ${ar(ays().length)}`;
-  function play(){if(!audio)audio=new Audio();const a=ays()[L.i];if(!a)return stop();audio.src=url(a);audio.onended=()=>{L.i++;save('listen');L.i<ays().length?play():(L.i=0,save('listen'),$('#st')&&($('#st').textContent='انتهت السورة'))};audio.onerror=()=>toast('تعذر تشغيل الصوت. تحقق من الاتصال بالإنترنت.');audio.play().then(()=>{lbl();save('listen')}).catch(()=>toast('تعذر التشغيل'))}
-  const stop=()=>{if(audio){audio.pause();audio.removeAttribute('src')}L.i=0;save('listen');if($('#st'))$('#st').textContent='متوقف'};
-  $('#rc').onchange=e=>{L.reciter=e.target.value;save('listen')};$('#ls').onchange=e=>{stop();L.s=+e.target.value;save('listen')};
-  $('#pl').onclick=()=>{audio&&audio.src&&audio.paused&&audio.currentTime>0?audio.play():play()};$('#pa').onclick=()=>audio&&audio.pause();$('#sp').onclick=stop;
+  <p id="st" class="src">متوقف</p><div class="bar"><button id="pl">تشغيل / استكمال</button><button class="alt" id="pa">إيقاف مؤقت</button><button class="alt" id="sp">إيقاف</button></div></div>
+  <div class="card"><h3>الاستماع بدون إنترنت</h3><p id="ds" class="src"></p>
+  <div class="bar"><label>الجودة <select id="qq"><option value="64">اقتصادي (٦٤)</option><option value="128">أعلى (١٢٨)</option></select></label></div>
+  <div class="bar"><button id="d1">تنزيل هذه السورة</button><button class="alt" id="dx">حذف هذه السورة</button></div>
+  <div class="bar"><button class="alt" id="da">تنزيل القرآن كله لهذا القارئ</button><button class="alt" id="dc" disabled>إلغاء</button><button class="warn" id="dd">حذف تنزيلات هذا القارئ</button></div>
+  <div class="note">السور المنزَّلة تعمل من الجهاز بلا إنترنت. غير المنزَّلة تحتاج إنترنت (بث آية بآية). كل قارئ يُنزَّل منفصلًا، والقرآن كله لقارئ واحد قد يتجاوز ١٠٠ ميجا بالجودة الاقتصادية. قد يمسح المتصفح التخزين لو ضاقت مساحة الجهاز.</div></div>`;
+  const ays=()=>S.quran[L.s-1].ayahs,have=()=>A[L.reciter]&&A[L.reciter][L.s],cnt=()=>Object.keys(A[L.reciter]||{}).length;
+  async function stat(){let u='';try{const e=await navigator.storage.estimate();u=` | المساحة المستخدمة: ${ar(Math.round(e.usage/1048576))} ميجا`}catch{}$('#ds').textContent=`منزَّل لهذا القارئ: ${ar(cnt())} من ١١٤ سورة | هذه السورة: ${have()?'✓ منزَّلة':'غير منزَّلة'}${u}`}
+  const setSt=t=>{const s=$('#st');if(s)s.textContent=t};
+  async function playFile(){const c=await AC(),r=await c.match(have());if(!r)return false;const b=await r.blob();if(furl)URL.revokeObjectURL(furl);furl=URL.createObjectURL(b);
+    if(!audio)audio=new Audio();audio.src=furl;audio.onended=()=>setSt('انتهت السورة');audio.onerror=()=>toast('تعذر تشغيل الملف المحفوظ');audio.ontimeupdate=()=>{if(Math.floor(audio.currentTime)%5===0){L.t=audio.currentTime;save('listen')}};
+    if(L.fs===L.reciter+':'+L.s&&L.t)audio.currentTime=L.t;L.fs=L.reciter+':'+L.s;await audio.play();mode='file';setSt(`${S.quran[L.s-1].name} — من الجهاز (بدون إنترنت)`);return true}
+  function playAyah(){if(!audio)audio=new Audio();const a=ays()[L.i];if(!a)return stop();audio.ontimeupdate=null;audio.src=`https://cdn.islamic.network/quran/audio/128/${eds(L.reciter)[ei]}/${a.g}.mp3`;
+    audio.onended=()=>{L.i++;save('listen');L.i<ays().length?playAyah():(L.i=0,save('listen'),setSt('انتهت السورة'))};
+    audio.onerror=()=>{if(ei<eds(L.reciter).length-1){ei++;playAyah()}else toast('تعذر تشغيل الصوت. تحقق من الاتصال بالإنترنت.')};
+    audio.play().then(()=>{mode='ayah';setSt(`${S.quran[L.s-1].name} — الآية ${ar(L.i+1)} من ${ar(ays().length)} (بث من الإنترنت)`);save('listen')}).catch(()=>toast('تعذر التشغيل'))}
+  async function play(){if(have()&&await playFile().catch(()=>false))return;playAyah()}
+  function stop(){if(audio){audio.pause();audio.removeAttribute('src')}L.i=0;L.t=0;save('listen');setSt('متوقف')}
+  $('#rc').onchange=e=>{stop();L.reciter=e.target.value;ei=0;save('listen');stat()};$('#ls').onchange=e=>{stop();L.s=+e.target.value;save('listen');stat()};
+  $('#pl').onclick=()=>{audio&&audio.src&&audio.paused&&audio.currentTime>0?audio.play():play()};
+  $('#pa').onclick=()=>{if(audio){audio.pause();L.t=audio.currentTime;save('listen')}};$('#sp').onclick=stop;
+  const busy=b=>{['d1','dx','da','dd'].forEach(i=>$('#'+i).disabled=b);$('#dc').disabled=!b};
+  async function run(list){abort=new AbortController();busy(true);try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();let k=0;
+      for(const n of list){if(A[L.reciter]&&A[L.reciter][n]){k++;continue}setSt(`جارٍ التنزيل: سورة ${S.quran[n-1].name} (${ar(++k)} من ${ar(list.length)})`);await dlSurah(L.reciter,n,+$('#qq').value,abort.signal)}
+      toast('تم التنزيل')}catch(e){toast(e.name==='AbortError'?'تم الإلغاء':'تعذر التنزيل: '+e.message)}finally{busy(false);setSt('متوقف');stat()}}
+  $('#d1').onclick=()=>run([L.s]);$('#da').onclick=()=>{if(confirm('تنزيل القرآن كله لهذا القارئ؟ يحتاج مساحة كبيرة واتصالًا ثابتًا.'))run(Array.from({length:114},(_,i)=>i+1))};
+  $('#dc').onclick=()=>abort&&abort.abort();
+  $('#dx').onclick=async()=>{await delSurah(L.reciter,L.s);toast('تم الحذف');stat()};
+  $('#dd').onclick=async()=>{if(!confirm('حذف كل تنزيلات هذا القارئ؟'))return;for(const n of Object.keys(A[L.reciter]||{}))await delSurah(L.reciter,n);toast('تم الحذف');stat()};
+  stat();
 };
 V.recite=el=>{
   if(!S.quran)return needData(el);
