@@ -18,6 +18,10 @@ const weeksNeeded=pw=>Math.ceil(TOTAL/pw);
 const planRange=(w,pw)=>{const a=(w-1)*pw+1;return a>TOTAL?null:[a,Math.min(TOTAL,w*pw)]};
 function locate(starts,g){let k=0;for(let i=0;i<starts.length;i++)if(starts[i]<=g)k=i;return{s:k+1,a:g-starts[k]+1}}
 function weekDays(start,w){const d=parse(start);d.setDate(d.getDate()+(w-1)*7);return Array.from({length:7},(_,i)=>{const x=new Date(d);x.setDate(x.getDate()+i);return ymd(x)})}
-const api={TOTAL,norm,compare,ymd,weekOf,weeksNeeded,planRange,locate,weekDays};
+const CH={27:'morning',28:'sleep',25:'afterPrayer'};
+function parseAdhkar(d,cat){const out=[];((d&&d.duas)||[]).forEach(x=>{const t=x.ar&&x.ar.text&&x.ar.text.trim();if(!t)return;const c=x.category||{};out.push({cat,text:t,count:x.repeatCount||null,source:'حصن المسلم — '+(c.ar||'')+' — رقم '+x.number+(x.source&&x.source.ar?' — '+x.source.ar:'')})});return out}
+function parseHadith(d){const out=[];((d&&d.hadiths)||[]).forEach(h=>{const t=h.ar&&h.ar.text&&h.ar.text.trim();if(!t)return;const g=((h.ar.grades)||[]).concat((h.en&&h.en.grades)||[]);const grade=g.length?[...new Set(g.map(x=>x.grade+' ('+x.graded_by+')'))].join('، '):'';out.push({text:t,cat:'الأربعون القدسية',grade,source:'الأربعون القدسية — حديث رقم '+h.hadithNumber+' (sunnah.com عبر islamic.app)'})});return out}
+function buildPages(q){const pages=[];q.forEach((s,si)=>s.ayahs.forEach((a,ai)=>{if(!a.p)return;const pg=pages[a.p]||(pages[a.p]=[]);let l=pg[pg.length-1];if(!l||l.s!==si){l={s:si,items:[]};pg.push(l)}l.items.push(ai)}));return pages}
+const api={buildPages,CH,parseAdhkar,parseHadith,TOTAL,norm,compare,ymd,weekOf,weeksNeeded,planRange,locate,weekDays};
 if(typeof module!=='undefined')module.exports=api;else root.Core=api;
 })(this);

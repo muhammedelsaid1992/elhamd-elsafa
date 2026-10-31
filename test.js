@@ -6,4 +6,10 @@ a.equal(C.weeksNeeded(120),52);a.deepEqual(C.planRange(52,120),[6121,6236]);a.eq
 a.equal(C.weekOf('2026-10-26','2026-10-31'),1);a.equal(C.weekOf('2026-10-24','2026-10-31'),2);
 const st=[1,8,294];a.deepEqual(C.locate(st,8),{s:2,a:1});a.deepEqual(C.locate(st,300),{s:3,a:7});
 a.equal(C.weekDays('2026-10-26',1)[6],'2026-11-01');
+const ad=C.parseAdhkar({duas:[{number:'3',category:{ar:'أذكار الصباح والمساء'},ar:{text:'نص'},repeatCount:3},{number:'4',ar:{text:' '}}]},'morning');
+a.equal(ad.length,1);a.equal(ad[0].count,3);a.ok(ad[0].source.includes('رقم 3'));
+const hd=C.parseHadith({hadiths:[{hadithNumber:'2',ar:{text:'حديث',grades:[{graded_by:'X',grade:'Sahih'}]},en:{grades:[]}},{hadithNumber:'3',ar:{text:''}}]});
+a.equal(hd.length,1);a.equal(hd[0].grade,'Sahih (X)');a.ok(hd[0].source.includes('حديث رقم 2'));
+const bp=C.buildPages([{ayahs:[{p:1},{p:1}]},{ayahs:[{p:1},{p:2}]}]);
+a.deepEqual(bp[1],[{s:0,items:[0,1]},{s:1,items:[0]}]);a.deepEqual(bp[2],[{s:1,items:[1]}]);
 console.log('core tests OK');

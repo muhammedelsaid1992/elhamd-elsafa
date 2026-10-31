@@ -7,7 +7,8 @@ const API='https://api.alquran.cloud/v1/quran/';
 const SRC_TAFSIR='التفسير الميسر — مجمع الملك فهد لطباعة المصحف الشريف (عبر alquran.cloud، الإصدار ar.muyassar)';
 const SRC_QURAN='المصحف بالرسم العثماني (نسخة Tanzil عبر alquran.cloud، الإصدار quran-uthmani)';
 const RECITERS={'ar.alafasy':'مشاري العفاسي','ar.husary':'محمود خليل الحصري','ar.minshawi':'محمد صديق المنشاوي','ar.abdulbasitmurattal':'عبد الباسط عبد الصمد (مرتل)'};
-const CATS={morning:'الصباح',evening:'المساء',sleep:'النوم',afterPrayer:'بعد الصلاة'};
+const CATS={morning:'الصباح والمساء',sleep:'النوم',afterPrayer:'بعد الصلاة'};
+const IA='https://api.islamic.app/v1/';
 const DHIKR=['سبحان الله','الحمد لله','الله أكبر','لا إله إلا الله','أستغفر الله'];
 const DEF={progress:{mem:{},bm:null,logs:{}},plan:{perWeek:120,start:null,review:20},tasbih:{dhikr:DHIKR[0],session:0,totals:{}},settings:{theme:'auto',font:26},listen:{reciter:'ar.alafasy',s:1,i:0},speechOk:false,custom:{adhkar:[],hadith:[],asbab:[]}};
 const S={};
@@ -20,12 +21,12 @@ async function load(){
   for(const k in DEF)S[k]=await DB.get(k,structuredClone(DEF[k]));
   S.quran=await DB.get('quran',null);S.tafsir=await DB.get('tafsir',null);S.bism=await DB.get('bism','');
   if(!S.plan.start){S.plan.start=today();await save('plan')}
-  S.files={adhkar:[],hadith:[],asbab:[]};
+  S.dl={adhkar:await DB.get('dl_adhkar',[]),hadith:await DB.get('dl_hadith',[])};S.files={adhkar:[],hadith:[],asbab:[]};
   for(const k in S.files){try{const r=await fetch('data/'+k+'.json');if(r.ok)S.files[k]=await r.json()}catch{}}
   index();applySettings();
 }
-const index=()=>{S.starts=S.quran?S.quran.map(s=>s.ayahs[0].g):[]};
-const all=k=>[...S.files[k],...S.custom[k]];
+const index=()=>{S.starts=S.quran?S.quran.map(s=>s.ayahs[0].g):[];S.pages=S.quran&&S.quran[0].ayahs[0].p?Core.buildPages(S.quran):[]};
+const all=k=>[...S.files[k],...(S.dl[k]||[]),...S.custom[k]];
 function applySettings(){const r=document.documentElement;S.settings.theme==='auto'?r.removeAttribute('data-theme'):r.dataset.theme=S.settings.theme;r.style.setProperty('--fs',S.settings.font+'px')}
 const memCount=()=>Object.keys(S.progress.mem).length;
 function touch(kind,n){const d=today(),l=S.progress.logs[d]||(S.progress.logs[d]={hifz:0,review:0,active:1});if(kind)l[kind]+=n;return save('progress')}
@@ -38,12 +39,17 @@ async function dlQuran(){
   const raw=await fetchEd('quran-uthmani');let bism='';
   const q=raw.map(s=>({n:s.number,name:s.name,ayahs:s.ayahs.map(a=>{let t=a.text;
     if(a.numberInSurah===1&&s.number!==1&&s.number!==9){const w=t.split(' ');if(Core.norm(w.slice(0,4).join(' '))==='بسم الله الرحمن الرحيم'){bism=bism||w.slice(0,4).join(' ');t=w.slice(4).join(' ')}}
-    return{g:a.number,n:a.numberInSurah,t}})}));
+    return{g:a.number,n:a.numberInSurah,t,p:a.page,j:a.juz}})}));
+  if(q.some(s=>s.ayahs.some(a=>!(a.p>=1&&a.p<=604))))throw new Error('أرقام الصفحات غير مكتملة');
   if(q.length!==114||q.reduce((n,s)=>n+s.ayahs.length,0)!==Core.TOTAL)throw new Error('البيانات المنزّلة غير مكتملة');
   await DB.set('quran',q);await DB.set('bism',bism);S.quran=q;S.bism=bism;index();
 }
 async function dlTafsir(){const raw=await fetchEd('ar.muyassar');const m={};raw.forEach(s=>s.ayahs.forEach(a=>m[a.number]=a.text));
   if(Object.keys(m).length!==Core.TOTAL)throw new Error('بيانات التفسير غير مكتملة');await DB.set('tafsir',m);S.tafsir=m}
+async function jget(u){const r=await fetch(IA+u);if(!r.ok)throw new Error('رمز الاستجابة '+r.status);const j=await r.json();if(j.code!==200)throw new Error('استجابة غير صالحة');return j.data}
+async function dlAdhkar(){let o=[];for(const[ch,cat]of Object.entries(Core.CH)){const l=Core.parseAdhkar(await jget('dhikr/'+ch),cat);if(!l.length)throw new Error('بيانات الباب '+ch+' فارغة');o=o.concat(l)}S.dl.adhkar=o;await DB.set('dl_adhkar',o)}
+async function dlHadith(){const o=[];let off=0,tot=1;while(off<tot){const d=await jget('hadith/collections/forty/books/2/hadiths?limit=50&offset='+off);tot=d.total;if(!d.hadiths||!d.hadiths.length)break;o.push(...Core.parseHadith(d));off+=50}if(!o.length)throw new Error('لم تصل أحاديث');S.dl.hadith=o;await DB.set('dl_hadith',o)}
+const DL={adhkar:dlAdhkar,hadith:dlHadith};
 /* ---------- views ---------- */
 const V={};
 V.home=el=>{
@@ -99,10 +105,10 @@ V.plan=el=>{
 V.adhkar=(el,q)=>{
   const cat=q.get('c')||'morning',list=all('adhkar').filter(x=>x.cat===cat);
   el.innerHTML=`<div class="bar">${Object.entries(CATS).map(([k,v])=>`<a class="btn${k===cat?'':' alt'}" href="#/adhkar?c=${k}">${v}</a>`).join('')}</div>`+
-  (list.length?list.map((x,i)=>`<div class="card"><p class="quran" style="font-size:calc(var(--fs)*.85)">${esc(x.text)}</p><p class="src">التكرار: ${ar(x.count||1)} | المصدر: ${esc(x.source)}</p><button class="alt" data-c="${x.count||1}">عدّ (${ar(x.count||1)})</button></div>`).join(''):noData('الأذكار','adhkar'));
+  (list.length?list.map((x,i)=>`<div class="card"><p class="quran" style="font-size:calc(var(--fs)*.85)">${esc(x.text)}</p><p class="src">التكرار: ${x.count?ar(x.count):'كما ورد في نص الذكر'} | المصدر: ${esc(x.source)}</p><button class="alt" data-c="${x.count||1}">عدّ (${ar(x.count||1)})</button></div>`).join(''):noData('الأذكار','adhkar'));
   el.onclick=e=>{const b=e.target.closest('button[data-c]');if(!b)return;let c=+b.dataset.c-1;b.dataset.c=Math.max(c,0);b.textContent=c>0?`عدّ (${ar(c)})`:'✓ تم'};
 };
-function noData(name,kind){return `<div class="note">لا توجد بيانات ${name} بعد. لم يضف التطبيق نصوصًا غير موثقة؛ استورد ملف JSON موثقًا من الإعدادات (انظر README لصيغة الملف).</div>`}
+function noData(name,kind){return DL[kind]?`<div class="card"><p>لم تُنزَّل بيانات ${name} بعد. تُنزَّل مرة واحدة من islamic.app (نسخة من sunnah.com) وتُحفظ على جهازك، ثم تعمل دون إنترنت. التطبيق لا يضيف أي نص من عنده.</p><button data-dl="${kind}">تنزيل ${name}</button></div>`:`<div class="note">لا توجد بيانات ${name}. لم يضف التطبيق نصوصًا غير موثقة؛ استورد ملف JSON موثقًا من الإعدادات (انظر README).</div>`}
 V.tasbih=el=>{
   const T=S.tasbih,tot=T.totals[T.dhikr]||0;
   el.innerHTML=`<div class="card"><select id="dk">${DHIKR.map(d=>`<option${d===T.dhikr?' selected':''}>${d}</option>`).join('')}</select><button class="big" id="tap" aria-live="polite">${ar(T.session)}</button><p>إجمالي «${esc(T.dhikr)}»: ${ar(tot)} — إجمالي كل الأذكار: ${ar(Object.values(T.totals).reduce((a,b)=>a+b,0))}</p><button class="alt" id="rs">تصفير الجلسة</button></div>`;
@@ -153,7 +159,7 @@ V.recite=el=>{
     $('#res').innerHTML=`<h3>النتيجة التقريبية: ${ar(r.pct)}٪</h3><p class="quran">${r.words.map(w=>`<span class="${w.ok?'ok':'bad'}">${esc(w.w)}</span>`).join(' ')}</p>${r.extra.length?`<p class="src">كلمات منطوقة زائدة أو غير مطابقة: ${esc(r.extra.join('، '))}</p>`:''}<p class="src">الأخضر: مطابقة، الأحمر: لم تُلتقط أو اختلفت.</p>`}
 };
 V.settings=el=>{
-  const st=S.settings,cnt=k=>S.custom[k].length+S.files[k].length;
+  const st=S.settings,cnt=k=>all(k).length;
   el.innerHTML=`<div class="card"><h3>المظهر</h3><div class="bar"><select id="th">${[['auto','تلقائي'],['light','فاتح'],['dark','داكن']].map(([k,v])=>`<option value="${k}"${st.theme===k?' selected':''}>${v}</option>`).join('')}</select><label>حجم خط المصحف <input id="fz" type="range" min="18" max="48" value="${st.font}"></label></div></div>
   <div class="card"><h3>النسخ الاحتياطي</h3><button id="ex">تصدير بياناتي</button> <label class="btn alt">استيراد نسخة احتياطية<input id="im" type="file" accept=".json,application/json" hidden></label></div>
   <div class="card"><h3>استيراد محتوى موثق</h3><p class="src">الصيغة في README. الأذكار: ${ar(cnt('adhkar'))}، الأحاديث: ${ar(cnt('hadith'))}، أسباب النزول: ${ar(cnt('asbab'))}.</p>${['adhkar','hadith','asbab'].map(k=>`<label class="btn alt">${{adhkar:'الأذكار',hadith:'الأحاديث القدسية',asbab:'أسباب النزول'}[k]}<input type="file" accept=".json" hidden data-k="${k}"></label>`).join('')}</div>
@@ -166,11 +172,48 @@ V.settings=el=>{
   $('#cp').onclick=async()=>{if(!confirm('حذف الآيات المحفوظة وسجل الإنجاز والتسبيح؟'))return;for(const k of ['progress','plan','tasbih'])S[k]=structuredClone(DEF[k]);S.plan.start=today();for(const k of ['progress','plan','tasbih'])await save(k);toast('تم المسح');route()};
   $('#ca').onclick=async()=>{if(!confirm('حذف كل البيانات بما فيها المصحف المنزَّل؟'))return;await DB.clear();location.reload()};
 };
-const NAV={home:'الرئيسية',mushaf:'المصحف',tafsir:'التفسير',plan:'الخطة',adhkar:'الأذكار',tasbih:'التسبيح',hadith:'الأحاديث القدسية',listen:'الاستماع',recite:'التسميع',settings:'الإعدادات'};
+V.quran=(el,q)=>{
+  if(!S.quran)return needData(el);
+  if(!S.quran[0].ayahs[0].p){el.innerHTML='<div class="card"><h3>تحديث بيانات المصحف</h3><p>لعرض صفحات المصحف تحتاج البيانات إلى أرقام الصفحات. تنزيل واحد، ويبقى تقدمك كما هو.</p><button id="up">تحديث البيانات</button></div>';
+    $('#up').onclick=async e=>{e.target.disabled=true;e.target.textContent='جارٍ التحديث...';try{await dlQuran();toast('تم التحديث');route()}catch(x){e.target.disabled=false;e.target.textContent='إعادة المحاولة';toast('تعذر التحديث: '+x.message)}};return}
+  const TH={paper:['ورقي','#fbf6e8','#2a2118','#b8923a'],sage:['أخضر هادئ','#e6efe3','#14301f','#2f7d5b'],sand:['رملي','#efe3cf','#3a2a1a','#a0622d'],night:['ليلي','#12161a','#e9e2cf','#d9b25c'],navy:['أزرق ليلي','#0f1c2e','#dce8ff','#7fb2ff'],amber:['كهرماني','#2b1e12','#f1dcae','#e0a43a']};
+  let p=Math.min(604,Math.max(1,+(q.get('p')||S.settings.page||1))),sel=null;
+  el.innerHTML=`<div class="mtool">${surahSel('ms',0)}<label>صفحة <input id="mpn" type="number" min="1" max="604" style="width:80px"></label><span>${Object.entries(TH).map(([k,v])=>`<button class="sw" data-t="${k}" style="background:${v[1]};border-color:${v[3]}" aria-label="${v[0]}" title="${v[0]}"></button>`).join('')}</span></div>
+  <div id="mw" class="mw"><div id="mp" class="mp"></div></div><div id="mac"></div>
+  <div class="bar" style="justify-content:space-between"><button class="alt" id="pv">الصفحة السابقة</button><button id="nx">الصفحة التالية</button></div><p class="src">اسحب بإصبعك من اليسار لليمين للصفحة التالية، ومن اليمين لليسار للسابقة. المصدر: ${SRC_QURAN}. حدود الصفحات كما في مصحف المدينة، وتوزيع الأسطر يتكيف مع حجم الشاشة.</p>`;
+  const mw=$('#mw');
+  function theme(){const t=TH[S.settings.mtheme]||TH.paper;mw.style.setProperty('--mbg',t[1]);mw.style.setProperty('--mfg',t[2]);mw.style.setProperty('--mac',t[3]);el.querySelectorAll('.sw').forEach(b=>b.classList.toggle('on',b.dataset.t===(S.settings.mtheme||'paper')))}
+  function draw(dir){
+    const pg=S.pages[p]||[];if(!pg.length){$('#mp').textContent='لا بيانات لهذه الصفحة';return}
+    const f=pg[0],sf=S.quran[f.s];let h='';
+    pg.forEach(b=>{const s=S.quran[b.s];
+      if(b.items[0]===0)h+=`<div class="sh">${esc(s.name)}</div>`+(s.n!==1&&s.n!==9&&S.bism?`<div class="bsm">${esc(S.bism)}</div>`:'');
+      h+=b.items.map(i=>{const a=s.ayahs[i];return `<span class="ay2${S.progress.mem[a.g]?' mm':''}" data-s="${s.n}" data-n="${a.n}">${esc(a.t)} <span class="am">${ar(a.n)}</span></span>`}).join(' ')+' '});
+    const mp=$('#mp');mp.className='mp'+(dir>0?' in-n':dir<0?' in-p':'');
+    mp.innerHTML=`<div class="mh"><span>${esc(sf.name)}</span><span>الجزء ${ar(sf.ayahs[f.items[0]].j)}</span></div><div class="mt" id="mt"><div class="mi" id="mi">${h}</div></div><div class="mf">${ar(p)}</div>`;
+    $('#ms').value=sf.n;$('#mpn').value=p;theme();fit();$('#mac').innerHTML='';sel=null}
+  function fit(){mw.style.height=Math.max(320,innerHeight-mw.getBoundingClientRect().top-70)+'px';const mt=$('#mt'),mi=$('#mi');if(!mt)return;let lo=12,hi=p<=2?30:36;
+    for(let k=0;k<9;k++){const m=(lo+hi)/2;mi.style.fontSize=m+'px';mi.offsetHeight>mt.clientHeight?hi=m:lo=m}mi.style.fontSize=lo+'px'}
+  function go(n,dir){n=Math.min(604,Math.max(1,n));if(n===p&&dir)return;p=n;S.settings.page=n;save('settings');draw(dir)}
+  $('#nx').onclick=()=>go(p+1,1);$('#pv').onclick=()=>go(p-1,-1);
+  $('#ms').onchange=e=>go(S.quran[e.target.value-1].ayahs[0].p,0);$('#mpn').onchange=e=>go(+e.target.value||p,0);
+  el.querySelectorAll('.sw').forEach(b=>b.onclick=()=>{S.settings.mtheme=b.dataset.t;save('settings');theme()});
+  let x0,y0;mw.addEventListener('touchstart',e=>{x0=e.touches[0].clientX;y0=e.touches[0].clientY},{passive:true});
+  mw.addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-x0,dy=e.changedTouches[0].clientY-y0;if(Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)*1.5)go(p+(dx>0?1:-1),dx>0?1:-1)});
+  document.onkeydown=e=>{if(/INPUT|SELECT/.test(e.target.tagName))return;if(e.key==='ArrowLeft')go(p+1,1);if(e.key==='ArrowRight')go(p-1,-1)};
+  onresize=fit;
+  mw.onclick=e=>{const t=e.target.closest('.ay2');if(!t)return;const s=+t.dataset.s,n=+t.dataset.n,g=S.quran[s-1].ayahs[n-1].g;
+    mw.querySelectorAll('.sel').forEach(x=>x.classList.remove('sel'));t.classList.add('sel');
+    $('#mac').innerHTML=`<div class="card"><b>${esc(S.quran[s-1].name)} — آية ${ar(n)}</b><div class="acts"><a class="btn alt" href="#/tafsir?s=${s}&a=${n}">تفسير</a><button class="alt" id="b1">توقفت هنا</button><button class="alt" id="b2">${S.progress.mem[g]?'✓ محفوظة':'حفظتها'}</button></div></div>`;
+    $('#b1').onclick=async()=>{S.progress.bm={s,a:n};await touch();toast('تم تحديد موضع التوقف')};
+    $('#b2').onclick=async()=>{S.progress.mem[g]?delete S.progress.mem[g]:S.progress.mem[g]=today();await touch();toast(S.progress.mem[g]?'تم تسجيل الآية محفوظة':'أُزيلت من المحفوظ');const k=p;draw(0)}};
+  draw(0);
+};
+const NAV={home:'الرئيسية',mushaf:'حفظ المصحف',quran:'المصحف',tafsir:'التفسير',plan:'الخطة',adhkar:'الأذكار',tasbih:'التسبيح',hadith:'الأحاديث القدسية',listen:'الاستماع',recite:'التسميع',settings:'الإعدادات'};
 function route(){const[h,qs]=(location.hash.slice(2)||'home').split('?'),name=V[h]?h:'home';
-  if(audio&&name!=='listen'&&0)audio.pause();
+  document.onkeydown=null;onresize=null;
   $('#nav').innerHTML=Object.entries(NAV).map(([k,v])=>`<a href="#/${k}"${k===name?' class="on" aria-current="page"':''}>${v}</a>`).join('');
-  const m=$('#view');m.onclick=null;V[name](m,new URLSearchParams(qs||''));if(!qs)scrollTo(0,0)}
+  const m=$('#view');m.onclick=null;V[name](m,new URLSearchParams(qs||''));m.querySelectorAll('[data-dl]').forEach(b=>b.onclick=async()=>{b.disabled=true;b.textContent='جارٍ التنزيل...';try{await DL[b.dataset.dl]();toast('تم التنزيل والحفظ');route()}catch(x){b.disabled=false;b.textContent='إعادة المحاولة';toast('تعذر التنزيل: '+x.message)}});if(!qs)scrollTo(0,0)}
 addEventListener('hashchange',route);
 if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 load().then(route).catch(e=>{$('#view').innerHTML='<div class="note">تعذر فتح التخزين المحلي: '+esc(e.message||e)+'</div>'});

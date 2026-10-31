@@ -27,3 +27,17 @@ button.alt,.btn.alt{background:transparent;color:var(--g2)}button.warn{backgroun
 #toast{position:fixed;bottom:20px;inset-inline:20px;margin:auto;max-width:420px;background:#222;color:#fff;padding:10px;border-radius:8px;text-align:center;opacity:0;pointer-events:none;transition:opacity .2s}#toast.on{opacity:1}
 table{width:100%;border-collapse:collapse;font-size:15px}td,th{border-bottom:1px solid var(--bd);padding:4px 6px;text-align:right}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+
+.mtool{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px}
+.sw{width:30px;height:30px;border-radius:50%;border:3px solid;padding:0;margin:2px}.sw.on{outline:3px solid var(--gold);outline-offset:2px}
+.mw{--mbg:#fbf6e8;--mfg:#2a2118;--mac:#b8923a;max-width:640px;margin:auto;background:var(--mbg);color:var(--mfg);border-radius:10px;overflow:hidden;touch-action:pan-y}
+.mp{height:100%;display:flex;flex-direction:column;border:3px double var(--mac);border-radius:10px;padding:8px 14px}
+.mh,.mf{display:flex;justify-content:space-between;color:var(--mac);font-size:14px}.mf{justify-content:center}
+.mt{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:center}
+.mi{flex:none;text-align:justify;text-align-last:center;line-height:2.15;font-family:"KFGQPC Uthmanic Script HAFS","Amiri Quran","Amiri","Scheherazade New","Traditional Arabic","Noto Naskh Arabic",serif}
+.sh{text-align:center;border:2px solid var(--mac);border-radius:8px;margin:6px 0;color:var(--mac);font-size:.9em}.bsm{text-align:center;color:var(--mac)}
+.ay2{cursor:pointer}.ay2.sel{background:rgba(184,146,58,.3);border-radius:6px}.ay2.mm{text-decoration:underline dotted var(--mac)}
+.am{display:inline-flex;align-items:center;justify-content:center;min-width:1.5em;height:1.5em;border:1.5px solid var(--mac);border-radius:50%;font-size:.5em;color:var(--mac);margin:0 2px;font-family:system-ui,sans-serif;line-height:1}
+@keyframes inn{from{transform:translateX(-40px);opacity:0}}@keyframes inp{from{transform:translateX(40px);opacity:0}}
+.in-n{animation:inn .25s}.in-p{animation:inp .25s}
+@media(prefers-reduced-motion:reduce){.in-n,.in-p{animation:none}}
