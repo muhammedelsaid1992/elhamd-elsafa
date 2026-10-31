@@ -129,7 +129,7 @@ const AUD='https://cdn.islamic.network/quran/audio-surah/',ALT={'ar.abdulbasit':
 let acache;const AC=async()=>acache||(acache=await caches.open('hamd-audio-v1'));
 const adl=async()=>S.adl||(S.adl=await DB.get('audiodl',{}));
 async function dlSurah(rc,n,q,sig){const A=await adl(),c=await AC();let last;
-  for(const ed of eds(rc))for(const br of [q,64,192].filter((v,i,x)=>x.indexOf(v)===i)){const u=`${AUD}${br}/${ed}/${n}.mp3`;
+  for(const ed of eds(rc))for(const br of [q,64,128,192].filter((v,i,x)=>x.indexOf(v)===i)){const u=`${AUD}${br}/${ed}/${n}.mp3`;
     try{const r=await fetch(u,{signal:sig});if(!r.ok){last=new Error('رمز الاستجابة '+r.status);continue}await c.put(u,r);(A[rc]||(A[rc]={}))[n]=u;await DB.set('audiodl',A);return u}
     catch(e){if(e.name==='AbortError')throw e;if(e instanceof TypeError)throw new Error('تعذر الاتصال بخادم الصوت (شبكة أو منع من الخادم)');last=e}}
   throw last||new Error('الملف غير متاح')}
@@ -140,7 +140,7 @@ V.listen=async el=>{
   el.innerHTML=`<div class="card"><div class="bar"><select id="rc">${Object.entries(RECITERS).map(([k,v])=>`<option value="${k}"${k===L.reciter?' selected':''}>${v}</option>`).join('')}</select>${surahSel('ls',L.s)}</div>
   <p id="st" class="src">متوقف</p><div class="bar"><button id="pl">تشغيل / استكمال</button><button class="alt" id="pa">إيقاف مؤقت</button><button class="alt" id="sp">إيقاف</button></div></div>
   <div class="card"><h3>الاستماع بدون إنترنت</h3><p id="ds" class="src"></p>
-  <div class="bar"><label>الجودة <select id="qq"><option value="64">اقتصادي (٦٤)</option><option value="192">أعلى (192)</option></select></label></div>
+  <div class="bar"><label>الجودة <select id="qq"><option value="64">اقتصادي (٦٤)</option><option value="128">أعلى (128)</option></select></label></div>
   <div class="bar"><button id="d1">تنزيل هذه السورة</button><button class="alt" id="dx">حذف هذه السورة</button></div>
   <div class="bar"><button class="alt" id="da">تنزيل القرآن كله لهذا القارئ</button><button class="alt" id="dc" disabled>إلغاء</button><button class="warn" id="dd">حذف تنزيلات هذا القارئ</button></div>
   <div class="note">السور المنزَّلة تعمل من الجهاز بلا إنترنت. غير المنزَّلة تحتاج إنترنت (بث آية بآية). كل قارئ يُنزَّل منفصلًا، والقرآن كله لقارئ واحد قد يتجاوز ١٠٠ ميجا بالجودة الاقتصادية. قد يمسح المتصفح التخزين لو ضاقت مساحة الجهاز.</div></div>`;
