@@ -10,7 +10,7 @@ const RECITERS={'ar.alafasy':'مشاري العفاسي','ar.husary':'محمود
 const CATS={morning:'الصباح والمساء',sleep:'النوم',afterPrayer:'بعد الصلاة'};
 const IA='https://api.islamic.app/v1/';
 const DHIKR=['سبحان الله','الحمد لله','الله أكبر','لا إله إلا الله','أستغفر الله'];
-const DEF={progress:{mem:{},bm:null,logs:{}},plan:{perWeek:120,start:null,review:20},tasbih:{dhikr:DHIKR[0],session:0,totals:{}},settings:{theme:'auto',font:26},listen:{reciter:'ar.alafasy',s:1,i:0},speechOk:false,custom:{adhkar:[],hadith:[]}};
+const DEF={progress:{mem:{},bm:null,logs:{}},plan:{perWeek:120,start:null,review:20},tasbih:{dhikr:DHIKR[0],session:0,totals:{}},settings:{theme:'auto',font:26},listen:{reciter:'ar.alafasy',s:1,i:0},prayer:{name:'القاهرة',lat:30.0444,lng:31.2357,method:'egypt',asr:1},speechOk:false,custom:{adhkar:[],hadith:[]}};
 const S={};
 const DB=(()=>{let p;const open=()=>p||(p=new Promise((res,rej)=>{const r=indexedDB.open('hamd-safa',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)}));
 const tx=async(m,f)=>{const db=await open();return new Promise((res,rej)=>{const q=f(db.transaction('kv',m).objectStore('kv'));q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)})};
@@ -52,6 +52,7 @@ async function dlHadith(){const o=[];let off=0,tot=1;while(off<tot){const d=awai
 const DL={adhkar:dlAdhkar,hadith:dlHadith};
 /* ---------- views ---------- */
 const V={};
+const nextCard=()=>{try{const n=nextPrayer();return `<div class="card"><a href="#/prayer" style="color:inherit;text-decoration:none"><h3>الصلاة القادمة: ${n.n} — ${t12(n.h)}</h3><span class="src">بعد ${leftTxt(n.left)} (${esc(S.prayer.name)})</span></a></div>`}catch{return ''}};
 V.home=el=>{
   const m=memCount(),wk=Core.weekOf(S.plan.start,today()),r=Core.planRange(wk,S.plan.perWeek),days=Object.keys(S.progress.logs).length;
   const lbl=g=>{if(!S.quran)return ar(g);const p=Core.locate(S.starts,g);return `${esc(S.quran[p.s-1].name)} آية ${ar(p.a)}`};
@@ -61,7 +62,7 @@ V.home=el=>{
   <div class="card"><h3>خطة هذا الأسبوع (الأسبوع ${ar(wk)} من ${ar(Core.weeksNeeded(S.plan.perWeek))})</h3>${r?`<p>${S.quran?`من ${lbl(r[0])} إلى ${lbl(r[1])}`:`الآيات ${ar(r[0])} – ${ar(r[1])}`}</p>`:'<p>انتهت أسابيع الخطة، يمكنك تعديلها من قسم الخطة.</p>'}
   <p class="src">اليوم: حفظ ${ar(l.hifz)} آية، مراجعة ${ar(l.review)} آية</p></div>
   ${S.progress.bm&&S.quran?`<div class="card"><a class="btn" href="#/mushaf?s=${S.progress.bm.s}&a=${S.progress.bm.a}">أكمل من موضع التوقف: ${esc(S.quran[S.progress.bm.s-1].name)} آية ${ar(S.progress.bm.a)}</a></div>`:''}
-  ${S.quran?'':'<div class="note">لم يُنزَّل المصحف بعد. افتح قسم «المصحف» لتنزيله مرة واحدة.</div>'}
+  ${nextCard()}${S.quran?'':'<div class="note">لم يُنزَّل المصحف بعد. افتح قسم «المصحف» لتنزيله مرة واحدة.</div>'}
   <div class="card"><h3>اختصارات</h3>${Object.entries(NAV).filter(([k])=>k!=='home').map(([k,v])=>`<a class="btn alt" href="#/${k}">${v}</a>`).join('')}</div>`;
 };
 V.mushaf=(el,q)=>{
@@ -142,18 +143,28 @@ async function recs(){
   const st=await DB.get('reciters',null);if(st&&st.length){pull();return clean(st)}
   return clean((await pull())||FALLBACK)}
 const hostOf=u=>{try{return new URL(u).host}catch{return u}};
-async function getRes(urls,sig){let last;for(const u of urls){try{const r=await fetch(u,{signal:sig});if(r.ok)return r;last=new Error(`رمز الاستجابة ${r.status} من ${hostOf(u)}`)}catch(e){if(e.name==='AbortError')throw e;last=new Error(`تعذر الوصول إلى ${hostOf(u)} (${e.message||'منع من المتصفح أو الشبكة'})`)}}throw last}
+async function getRes(urls,sig){const errs=[];for(const u of urls){try{const r=await fetch(u,{signal:sig});
+    if(r.ok&&!/text\/html/.test(r.headers.get('content-type')||''))return r;errs.push(`${hostOf(new URL(u,location.href).href)}: ${r.status}`)}
+  catch(e){if(e.name==='AbortError')throw e;errs.push(`${hostOf(new URL(u,location.href).href)}: ${e.message||'فشل'}`)}}
+  throw new Error('تعذر التنزيل من المتصفح (غالبًا الخادم لا يسمح بالتنزيل المباشر). المحاولات: '+errs.join(' | '))}
 async function saveRes(c,key,r){const cl=+r.headers.get('content-length')||0;let n=0;
   try{if(r.body&&typeof TransformStream!=='undefined'){const ts=new TransformStream({transform(ch,ctl){n+=ch.byteLength;ctl.enqueue(ch)}});await c.put(key,new Response(r.body.pipeThrough(ts),{status:200,headers:{'content-type':'audio/mpeg'}}))}
     else{const b=await r.blob();n=b.size;await c.put(key,new Response(b,{status:200,headers:{'content-type':'audio/mpeg'}}))}}
   catch(e){if(e.name==='AbortError')throw e;await c.delete(key).catch(()=>{});throw new Error('تعذر الحفظ على الجهاز: '+(e.message||e))}
   if(n<2000||(cl&&n!==cl)){await c.delete(key).catch(()=>{});throw new Error('الملف المنزّل ناقص، أعد المحاولة')}}
-async function dlSurah(rc,n,lv,sig){const A=await adl(),c=await AC(),id=encodeURIComponent(rc);
-  if(lv.includes('surah')){const u=surahUrl(rc,n);
-    try{const r=await getRes([u,`https://cdn.islamic.app/quran/audio-surah/${id}/${n}.mp3`],sig);await saveRes(c,u,r);(A[rc]||(A[rc]={}))[n]={t:'surah',u};await DB.set('audiodl2',A);return}
-    catch(e){if(e.name==='AbortError'||!lv.includes('ayah'))throw e}}
-  for(const a of S.quran[n-1].ayahs){if(sig.aborted)throw ABORT();const u=ayahUrl(rc,a.g);if(await c.match(u))continue;
-    const r=await getRes([u,`https://cdn.islamic.app/quran/audio/${id}/${a.g}.mp3`],sig);await saveRes(c,u,r)}
+const HF4=['alafasy','husary','minshawy-murattal','abdul-basit-murattal'];
+const HFMAP={'ar.alafasy':['alafasy-128kbps','alafasy-64kbps'],'ar.husary':['husary-128kbps','husary-64kbps'],'ar.minshawi':['minshawy-murattal-128kbps','minshawy-murattal-64kbps'],'ar.abdulbasit':['abdul-basit-murattal-192kbps','abdul-basit-murattal-64kbps'],'ar.abdulbasitmurattal':['abdul-basit-murattal-192kbps','abdul-basit-murattal-64kbps']};
+const hfUrl=(set,s,a)=>`https://huggingface.co/datasets/maqra-project/${set}/resolve/main/${String(s).padStart(3,'0')}${String(a).padStart(3,'0')}.mp3`;
+async function hfPick(rc,sig){const c=HFMAP[rc];if(!c)return null;S.listen.hf=S.listen.hf||{};if(S.listen.hf[rc])return S.listen.hf[rc];let last;
+  for(const set of c){try{const r=await getRes([hfUrl(set,1,1)],sig);await r.arrayBuffer();S.listen.hf[rc]=set;save('listen');return set}catch(e){if(e.name==='AbortError')throw e;last=e}}
+  throw last||new Error('مصدر التنزيل غير متاح')}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function dlSurah(rc,n,lv,sig){const A=await adl(),c=await AC(),set=await hfPick(rc,sig);
+  if(!set)throw new Error('التنزيل للأوفلاين متاح حاليًا للعفاسي والحصري والمنشاوي وعبد الباسط فقط');
+  const ays=S.quran[n-1].ayahs;let idx=0,err=null;
+  const worker=async()=>{while(idx<ays.length&&!err){const a=ays[idx++],key=ayahUrl(rc,a.g);if(await c.match(key))continue;
+    for(let t=0;;t++){try{const r=await getRes([hfUrl(set,n,a.n)],sig);await saveRes(c,key,r);break}catch(e){if(e.name!=='AbortError'&&t<3&&/429|503/.test(e.message)){await sleep(4000*(t+1));continue}err=e;return}}}};
+  await Promise.all([worker(),worker(),worker()]);if(err)throw err;if(sig.aborted)throw ABORT();
   (A[rc]||(A[rc]={}))[n]={t:'ayahs'};await DB.set('audiodl2',A)}
 async function delSurah(rc,n){const A=await adl(),c=await AC(),e=ent(A,rc,n);
   if(e&&e.t==='surah')await c.delete(e.u);if(e&&e.t==='ayahs')for(const a of S.quran[n-1].ayahs)await c.delete(ayahUrl(rc,a.g));
@@ -165,12 +176,12 @@ V.listen=async el=>{
   if(!R.some(x=>x.id===L.reciter)){L.reciter=R[0].id;save('listen')}
   el.innerHTML=`<div class="card"><div class="bar"><select id="rc">${R.map(x=>`<option value="${esc(x.id)}"${x.id===L.reciter?' selected':''}>${esc(x.name)}${x.levels.includes('surah')?'':' (آية بآية)'}</option>`).join('')}</select>${surahSel('ls',L.s)}</div>
   <p id="st" class="src">متوقف</p><div class="bar"><button id="pl">تشغيل / استكمال</button><button class="alt" id="pa">إيقاف مؤقت</button><button class="alt" id="sp">إيقاف</button></div></div>
-  <div class="card"><h3>الاستماع بدون إنترنت</h3><p id="ds" class="src"></p><p id="er" class="src" style="color:#c33"></p>
-  <div class="bar"><button id="d1">تنزيل هذه السورة</button><button class="alt" id="dx">حذف هذه السورة</button></div>
+  <div class="card"><h3>الاستماع بدون إنترنت</h3><p id="ds" class="src"></p><p id="dn" class="src"></p><p id="er" class="src" style="color:#c33"></p>
+  <div class="bar"><button id="d1">تنزيل هذه السورة</button><button class="alt" id="dx">حذف هذه السورة</button><button class="alt" id="dt">فحص مصدر التنزيل</button></div>
   <div class="bar"><button class="alt" id="da">تنزيل القرآن كله لهذا القارئ</button><button class="alt" id="dc" disabled>إلغاء</button><button class="warn" id="dd">حذف تنزيلات هذا القارئ</button></div>
-  <div class="note">السور المنزَّلة تعمل من الجهاز بلا إنترنت، وغير المنزَّلة تحتاج إنترنت. كل قارئ يُنزَّل منفصلًا وقد يحتاج القرآن كله لقارئ واحد مئات الميجابايت. بعض القرّاء تُنزَّل سورهم آيةً آية. قد يمسح المتصفح التخزين لو ضاقت مساحة الجهاز. التنزيلات القديمة من النسخ السابقة لا تُستخدم، فأعد تنزيل ما تحتاجه.</div>${bad.length?`<button class="alt" id="rb">إظهار القرّاء المخفيين (${ar(bad.length)})</button>`:''}</div>`;
+  <div class="note">السور المنزَّلة تعمل من الجهاز بلا إنترنت، وغير المنزَّلة تحتاج إنترنت. التنزيل متاح للعفاسي والحصري والمنشاوي وعبد الباسط، آيةً آية، من مرآة Maqra لتسجيلات <a href="https://everyayah.com/" target="_blank" rel="noopener">everyayah.com</a> والحقوق لأصحابها. كل قارئ يُنزَّل منفصلًا وقد يحتاج القرآن كله لقارئ واحد مئات الميجابايت. بعض القرّاء تُنزَّل سورهم آيةً آية. قد يمسح المتصفح التخزين لو ضاقت مساحة الجهاز. التنزيلات القديمة من النسخ السابقة لا تُستخدم، فأعد تنزيل ما تحتاجه.</div>${bad.length?`<button class="alt" id="rb">إظهار القرّاء المخفيين (${ar(bad.length)})</button>`:''}</div>`;
   const ays=()=>S.quran[L.s-1].ayahs,E=()=>ent(A,L.reciter,L.s),cnt=()=>Object.keys(A[L.reciter]||{}).length,lvl=()=>(R.find(x=>x.id===L.reciter)||{levels:['ayah']}).levels;
-  async function stat(){let u='';try{const e=await navigator.storage.estimate();u=` | المساحة المستخدمة: ${ar(Math.round(e.usage/1048576))} ميجا`}catch{}$('#ds').textContent=`منزَّل لهذا القارئ: ${ar(cnt())} من ١١٤ سورة | هذه السورة: ${E()?'✓ منزَّلة':'غير منزَّلة'}${u}`}
+  async function stat(){lockDl();$('#dn').textContent=canDl()?'':'التنزيل للأوفلاين غير متاح لهذا القارئ، لكن بثه يعمل بالإنترنت.';let u='';try{const e=await navigator.storage.estimate();u=` | المساحة المستخدمة: ${ar(Math.round(e.usage/1048576))} ميجا`}catch{}$('#ds').textContent=`منزَّل لهذا القارئ: ${ar(cnt())} من ١١٤ سورة | هذه السورة: ${E()?'✓ منزَّلة':'غير منزَّلة'}${u}`}
   const setSt=t=>{const s=$('#st');if(s)s.textContent=t};
   const blobUrl=async u=>{const r=await(await AC()).match(u);if(!r)return null;const b=await r.blob();if(furl)URL.revokeObjectURL(furl);return furl=URL.createObjectURL(b)};
   async function playFile(){const e=E();if(!e||e.t!=='surah')return false;const src=await blobUrl(e.u);if(!src)return false;if(!audio)audio=new Audio();
@@ -200,7 +211,8 @@ V.listen=async el=>{
   $('#rc').onchange=e=>{stop();L.reciter=e.target.value;save('listen');stat()};$('#ls').onchange=e=>{stop();L.s=+e.target.value;save('listen');stat()};
   $('#pl').onclick=()=>{audio&&audio.src&&audio.paused&&audio.currentTime>0?audio.play():play()};
   $('#pa').onclick=()=>{if(audio){audio.pause();L.t=audio.currentTime;save('listen')}};$('#sp').onclick=stop;
-  const busy=b=>{['d1','dx','da','dd'].forEach(i=>$('#'+i).disabled=b);$('#dc').disabled=!b};
+  const canDl=()=>!!HFMAP[L.reciter],lockDl=()=>['d1','da'].forEach(i=>$('#'+i).disabled=!canDl());
+  const busy=b=>{['d1','dx','da','dd','dt'].forEach(i=>$('#'+i).disabled=b);$('#dc').disabled=!b;if(!b)lockDl()};
   async function run(list){abort=new AbortController();busy(true);$('#er').textContent='';try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();let k=0;
       for(const n of list){if(ent(A,L.reciter,n)){k++;continue}setSt(`جارٍ التنزيل: سورة ${S.quran[n-1].name} (${ar(++k)} من ${ar(list.length)})`);await dlSurah(L.reciter,n,lvl(),abort.signal)}
       toast('تم التنزيل')}catch(e){{const m=e.name==='AbortError'?'تم الإلغاء':'تعذر التنزيل: '+(e.message||e);toast(m);$('#er').textContent=e.name==='AbortError'?'':m}}finally{busy(false);setSt('متوقف');stat()}}
@@ -208,6 +220,7 @@ V.listen=async el=>{
   $('#dc').onclick=()=>abort&&abort.abort();
   $('#dx').onclick=async()=>{await delSurah(L.reciter,L.s);toast('تم الحذف');stat()};
   $('#dd').onclick=async()=>{if(!confirm('حذف كل تنزيلات هذا القارئ؟'))return;for(const n of Object.keys(A[L.reciter]||{}))await delSurah(L.reciter,n);toast('تم الحذف');stat()};
+  $('#dt').onclick=async()=>{if(!canDl())return toast('هذا القارئ غير مدعوم للتنزيل');try{if(S.listen.hf)delete S.listen.hf[L.reciter];const set=await hfPick(L.reciter,new AbortController().signal);toast('مصدر التنزيل يعمل ('+set+')');$('#er').textContent=''}catch(e){const m='فشل الفحص: '+(e.message||e);toast(m);$('#er').textContent=m}};
   if($('#rb'))$('#rb').onclick=async()=>{await DB.set('badrec',[]);route()};
   stat();
 };
@@ -238,9 +251,9 @@ V.settings=el=>{
   <div class="card"><h3>استيراد محتوى موثق</h3><p class="src">الصيغة في README. الأذكار: ${ar(cnt('adhkar'))}، الأحاديث: ${ar(cnt('hadith'))}.</p>${['adhkar','hadith'].map(k=>`<label class="btn alt">${{adhkar:'الأذكار',hadith:'الأحاديث القدسية'}[k]}<input type="file" accept=".json" hidden data-k="${k}"></label>`).join('')}</div>
   <div class="card"><h3>إدارة البيانات المحلية</h3><p class="src">المصحف: ${S.quran?'منزَّل':'غير منزَّل'} | التفسير: ${S.tafsir?'منزَّل':'غير منزَّل'}</p><button class="warn" id="cp">مسح التقدم فقط</button> <button class="warn" id="ca">مسح كل البيانات</button></div>`;
   $('#th').onchange=async e=>{st.theme=e.target.value;applySettings();await save('settings')};$('#fz').oninput=async e=>{st.font=+e.target.value;applySettings();await save('settings')};
-  $('#ex').onclick=()=>{const d={app:'hamd-safa',v:1,date:today()};['progress','plan','tasbih','settings','listen','custom'].forEach(k=>d[k]=S[k]);const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(d)],{type:'application/json'}));a.download=`hamd-safa-backup-${today()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1e4)};
+  $('#ex').onclick=()=>{const d={app:'hamd-safa',v:1,date:today()};['progress','plan','tasbih','settings','listen','custom','prayer'].forEach(k=>d[k]=S[k]);const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(d)],{type:'application/json'}));a.download=`hamd-safa-backup-${today()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1e4)};
   const rd=f=>f.text().then(JSON.parse);
-  $('#im').onchange=async e=>{try{const d=await rd(e.target.files[0]);if(d.app!=='hamd-safa'||!d.progress||!d.plan)throw 0;if(!confirm('سيتم استبدال بياناتك الحالية. متابعة؟'))return;for(const k of ['progress','plan','tasbih','settings','listen','custom'])if(d[k]){S[k]=d[k];await save(k)}applySettings();toast('تمت الاستعادة');route()}catch{toast('الملف ليس نسخة احتياطية صالحة')}};
+  $('#im').onchange=async e=>{try{const d=await rd(e.target.files[0]);if(d.app!=='hamd-safa'||!d.progress||!d.plan)throw 0;if(!confirm('سيتم استبدال بياناتك الحالية. متابعة؟'))return;for(const k of ['progress','plan','tasbih','settings','listen','custom','prayer'])if(d[k]){S[k]=d[k];await save(k)}applySettings();toast('تمت الاستعادة');route()}catch{toast('الملف ليس نسخة احتياطية صالحة')}};
   el.querySelectorAll('input[data-k]').forEach(i=>i.onchange=async e=>{const k=i.dataset.k;try{const d=await rd(e.target.files[0]);const ok=Array.isArray(d)&&d.length&&d.every(x=>x&&typeof x.text==='string'&&x.text.trim()&&typeof x.source==='string'&&x.source.trim()&&(k!=='adhkar'||CATS[x.cat]));if(!ok)throw 0;S.custom[k]=d;await save('custom');toast('تم استيراد '+ar(d.length)+' عنصرًا');V.settings(el)}catch{toast('الملف غير صالح: كل عنصر يلزمه text وsource (والحقول المذكورة في README)')}});
   $('#cp').onclick=async()=>{if(!confirm('حذف الآيات المحفوظة وسجل الإنجاز والتسبيح؟'))return;for(const k of ['progress','plan','tasbih'])S[k]=structuredClone(DEF[k]);S.plan.start=today();for(const k of ['progress','plan','tasbih'])await save(k);toast('تم المسح');route()};
   $('#ca').onclick=async()=>{if(!confirm('حذف كل البيانات بما فيها المصحف المنزَّل؟'))return;await DB.clear();location.reload()};
@@ -282,9 +295,35 @@ V.quran=(el,q)=>{
     $('#b2').onclick=async()=>{S.progress.mem[g]?delete S.progress.mem[g]:S.progress.mem[g]=today();await touch();toast(S.progress.mem[g]?'تم تسجيل الآية محفوظة':'أُزيلت من المحفوظ');const k=p;draw(0)}};
   draw(0);
 };
-const NAV={home:'الرئيسية',mushaf:'حفظ المصحف',quran:'المصحف',tafsir:'التفسير',plan:'الخطة',adhkar:'الأذكار',tasbih:'التسبيح',hadith:'الأحاديث القدسية',listen:'الاستماع',recite:'التسميع',settings:'الإعدادات'};
+const PN=[['fajr','الفجر'],['sunrise','الشروق'],['dhuhr','الظهر'],['asr','العصر'],['maghrib','المغرب'],['isha','العشاء']];
+const prayerDay=d=>{const P=S.prayer,tz=-new Date(d.getFullYear(),d.getMonth(),d.getDate(),12).getTimezoneOffset()/60;return Core.prayerTimes(d,P.lat,P.lng,tz,{method:P.method,asr:P.asr})};
+const t12=h=>{if(!isFinite(h))return '—';h=((h+0.5/60)%24+24)%24;const H=Math.floor(h),M=Math.floor((h-H)*60);return `${ar(H%12||12)}:${M<10?ar(0):''}${ar(M)} ${H<12?'ص':'م'}`};
+const leftTxt=h=>{const m=Math.max(0,Math.round(h*60));return `${ar(Math.floor(m/60))} س و${ar(m%60)} د`};
+function nextPrayer(){const now=new Date(),t=prayerDay(now),cur=now.getHours()+now.getMinutes()/60+now.getSeconds()/3600;
+  for(const [k,n] of PN){if(k==='sunrise')continue;if(isFinite(t[k])&&t[k]>cur)return{n,h:t[k],left:t[k]-cur}}
+  const tm=new Date(now);tm.setDate(tm.getDate()+1);const f=prayerDay(tm).fajr;return{n:'الفجر',h:f,left:24-cur+f}}
+const CITIES={cairo:['القاهرة',30.0444,31.2357],alex:['الإسكندرية',31.2001,29.9187],giza:['الجيزة',30.0131,31.2089],aswan:['أسوان',24.0889,32.8998],mecca:['مكة المكرمة',21.3891,39.8579],medina:['المدينة المنورة',24.5247,39.5692],riyadh:['الرياض',24.7136,46.6753],jeddah:['جدة',21.4858,39.1925],amman:['عمّان',31.9454,35.9284],dubai:['دبي',25.2048,55.2708]};
+const METHODS={egypt:'الهيئة المصرية العامة للمساحة',mwl:'رابطة العالم الإسلامي',makkah:'أم القرى',karachi:'جامعة العلوم الإسلامية بكراتشي',isna:'أمريكا الشمالية (ISNA)'};
+V.prayer=el=>{
+  const P=S.prayer;
+  el.innerHTML=`<div class="card"><h3>${esc(P.name)}</h3><p id="nx"></p><table id="pt"></table><p class="src" id="ql"></p></div>
+  <div class="card"><h3>الموقع والحساب</h3><div class="bar"><select id="ct"><option value="">اختر مدينة</option>${Object.entries(CITIES).map(([k,v])=>`<option value="${k}">${v[0]}</option>`).join('')}</select><button class="alt" id="gp">موقعي الحالي</button></div>
+  <div class="bar"><label>خط العرض <input id="la" type="number" step="0.0001" value="${P.lat}" style="width:110px"></label><label>خط الطول <input id="lo" type="number" step="0.0001" value="${P.lng}" style="width:110px"></label></div>
+  <div class="bar"><select id="mt">${Object.entries(METHODS).map(([k,v])=>`<option value="${k}"${k===P.method?' selected':''}>${v}</option>`).join('')}</select><select id="as"><option value="1"${P.asr==1?' selected':''}>العصر: ظل المثل (جمهور)</option><option value="2"${P.asr==2?' selected':''}>العصر: ظل المثلين (حنفي)</option></select><button id="sv">حفظ</button></div>
+  <div class="note">الحساب فلكي يتم على جهازك بدون إنترنت، ولا يُرسل موقعك لأي جهة. قد يختلف دقيقة أو دقيقتين عن التقويم الرسمي لبلدك، فقارنه به. يعتمد على توقيت جهازك، ولا يرسل التطبيق تنبيهات أو أذانًا تلقائيًا.</div></div>`;
+  function draw(){const now=new Date(),t=prayerDay(now),nx=nextPrayer();
+    $('#pt').innerHTML=PN.map(([k,n])=>`<tr${n===nx.n?' style="font-weight:700;color:var(--gold)"':''}><td>${n}</td><td>${t12(t[k])}</td></tr>`).join('');
+    $('#nx').textContent=`الصلاة القادمة: ${nx.n} ${t12(nx.h)} (بعد ${leftTxt(nx.left)})`;
+    $('#ql').textContent=`اتجاه القبلة: ${ar(Math.round(Core.qibla(P.lat,P.lng)))}° من الشمال مع اتجاه عقارب الساعة`}
+  const setLoc=(n,la,lo)=>{P.name=n;P.lat=la;P.lng=lo;$('#la').value=la;$('#lo').value=lo;save('prayer');el.querySelector('h3').textContent=n;draw()};
+  $('#ct').onchange=e=>{const c=CITIES[e.target.value];if(c)setLoc(c[0],c[1],c[2])};
+  $('#gp').onclick=()=>{if(!navigator.geolocation)return toast('المتصفح لا يدعم تحديد الموقع');navigator.geolocation.getCurrentPosition(p=>{setLoc('موقعي الحالي',+p.coords.latitude.toFixed(4),+p.coords.longitude.toFixed(4));toast('تم تحديد موقعك')},()=>toast('تعذر تحديد الموقع، اسمح للموقع بالوصول أو اختر مدينة'),{timeout:15000,maximumAge:3600000})};
+  $('#sv').onclick=()=>{const la=+$('#la').value,lo=+$('#lo').value;if(!(Math.abs(la)<=65&&Math.abs(lo)<=180))return toast('إحداثيات غير صالحة (الحساب يدعم حتى خط عرض ٦٥)');P.lat=la;P.lng=lo;P.method=$('#mt').value;P.asr=+$('#as').value;if(!CITIES[$('#ct').value])P.name=P.name||'موقع مخصص';save('prayer');toast('تم الحفظ');draw()};
+  draw();window._pt=setInterval(draw,20000);
+};
+const NAV={home:'الرئيسية',mushaf:'حفظ المصحف',quran:'المصحف',tafsir:'التفسير',plan:'الخطة',adhkar:'الأذكار',prayer:'مواقيت الصلاة',tasbih:'التسبيح',hadith:'الأحاديث القدسية',listen:'الاستماع',recite:'التسميع',settings:'الإعدادات'};
 function route(){const[h,qs]=(location.hash.slice(2)||'home').split('?'),name=V[h]?h:'home';
-  document.onkeydown=null;onresize=null;
+  document.onkeydown=null;onresize=null;clearInterval(window._pt);
   $('#nav').innerHTML=Object.entries(NAV).map(([k,v])=>`<a href="#/${k}"${k===name?' class="on" aria-current="page"':''}>${v}</a>`).join('');
   const m=$('#view');m.onclick=null;V[name](m,new URLSearchParams(qs||''));m.querySelectorAll('[data-dl]').forEach(b=>b.onclick=async()=>{b.disabled=true;b.textContent='جارٍ التنزيل...';try{await DL[b.dataset.dl]();toast('تم التنزيل والحفظ');route()}catch(x){b.disabled=false;b.textContent='إعادة المحاولة';toast('تعذر التنزيل: '+x.message)}});if(!qs)scrollTo(0,0)}
 addEventListener('hashchange',route);

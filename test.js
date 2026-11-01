@@ -12,4 +12,9 @@ const hd=C.parseHadith({hadiths:[{hadithNumber:'2',ar:{text:'حديث',grades:[{
 a.equal(hd.length,1);a.equal(hd[0].grade,'Sahih (X)');a.ok(hd[0].source.includes('حديث رقم 2'));
 const bp=C.buildPages([{ayahs:[{p:1},{p:1}]},{ayahs:[{p:1},{p:2}]}]);
 a.deepEqual(bp[1],[{s:0,items:[0,1]},{s:1,items:[0]}]);a.deepEqual(bp[2],[{s:1,items:[1]}]);
+const pc=C.prayerTimes(new Date(2026,10,1),30.0444,31.2357,2,{method:'egypt',asr:1});
+a.ok(pc.dhuhr>11.58&&pc.dhuhr<11.75,'dhuhr '+pc.dhuhr);a.ok(pc.fajr<pc.sunrise&&pc.sunrise<pc.dhuhr&&pc.dhuhr<pc.asr&&pc.asr<pc.maghrib&&pc.maghrib<pc.isha);
+const pm=C.prayerTimes(new Date(2026,10,1),21.3891,39.8579,3,{method:'makkah',asr:1});a.ok(Math.abs(pm.isha-pm.maghrib-1.5)<1e-9);
+const qb=C.qibla(30.0444,31.2357);a.ok(qb>134&&qb<138,'qibla '+qb);
+console.log('cairo',Object.entries(pc).map(([k,v])=>k+' '+v.toFixed(2)).join(' | '));
 console.log('core tests OK');
