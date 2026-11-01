@@ -128,34 +128,48 @@ let audio,furl;
 const AUD='https://cdn.islamic.network/quran/audio-surah/',ALT={'ar.abdulbasit':['ar.abdulbasit','ar.abdulbasitmurattal']},eds=r=>ALT[r]||[r];
 let acache;const AC=async()=>acache||(acache=await caches.open('hamd-audio-v1'));
 const adl=async()=>S.adl||(S.adl=await DB.get('audiodl',{}));
-async function dlSurah(rc,n,q,sig){const A=await adl(),c=await AC();let last;
-  for(const ed of eds(rc))for(const br of [q,64,128,192].filter((v,i,x)=>x.indexOf(v)===i)){const u=`${AUD}${br}/${ed}/${n}.mp3`;
-    try{const r=await fetch(u,{signal:sig});if(!r.ok){last=new Error('رمز الاستجابة '+r.status);continue}await c.put(u,r);(A[rc]||(A[rc]={}))[n]=u;await DB.set('audiodl',A);return u}
-    catch(e){if(e.name==='AbortError')throw e;if(e instanceof TypeError)throw new Error('تعذر الاتصال بخادم الصوت (شبكة أو منع من الخادم)');last=e}}
-  throw last||new Error('الملف غير متاح')}
-async function delSurah(rc,n){const A=await adl(),c=await AC(),u=A[rc]&&A[rc][n];if(u)await c.delete(u);if(A[rc])delete A[rc][n];await DB.set('audiodl',A)}
+const probe=(u,ms=20000)=>new Promise(res=>{const x=new Audio();let d=0;const f=ok=>{if(d)return;d=1;clearTimeout(t);x.onloadedmetadata=x.oncanplay=x.onerror=null;x.removeAttribute('src');x.load();res(ok)};const t=setTimeout(()=>f(false),ms);x.preload='auto';x.onloadedmetadata=x.oncanplay=()=>f(true);x.onerror=()=>f(false);x.src=u;x.load()});
+const ent=(A,rc,n)=>{const e=A[rc]&&A[rc][n];return typeof e==='string'?{u:e,t:'cors'}:e};
+const ABORT=()=>new DOMException('تم الإلغاء','AbortError');
+async function dlSurah(rc,n,q,sig){const A=await adl(),c=await AC(),list=[];
+  for(const ed of eds(rc))for(const br of [q,128,192,64].filter((v,i,x)=>x.indexOf(v)===i))list.push(`${AUD}${br}/${ed}/${n}.mp3`);
+  const k=(S.listen.okS||{})[rc];if(k)list.unshift(k.replace('{n}',n));
+  let u=null,t='cors',mode='cors';
+  for(const x of list){if(sig.aborted)throw ABORT();
+    try{const r=await fetch(x,{signal:sig});if(!r.ok)continue;await c.put(x,r);u=x;break}
+    catch(e){if(e.name==='AbortError')throw e;if(e instanceof TypeError){mode='opaque';break}}}
+  if(mode==='opaque'){
+    for(const x of list){if(sig.aborted)throw ABORT();if(await probe(x)){u=x;break}}
+    if(u){try{const r=await fetch(u,{mode:'no-cors',signal:sig});await c.put(new Request(u,{mode:'no-cors'}),r);t='opaque'}catch(e){if(e.name==='AbortError')throw e;throw new Error('انقطع الاتصال أثناء التنزيل')}}}
+  if(!u)throw new Error('لم أجد ملفًا متاحًا لهذه السورة عند هذا القارئ. تحقق من الإنترنت أو جرّب جودة أو قارئًا آخر');
+  S.listen.okS=S.listen.okS||{};S.listen.okS[rc]=u.replace(/\/\d+\.mp3$/,'/{n}.mp3');save('listen');
+  (A[rc]||(A[rc]={}))[n]={u,t};await DB.set('audiodl',A);return u}
+async function delSurah(rc,n){const A=await adl(),c=await AC(),e=ent(A,rc,n);if(e)await c.delete(e.u);if(A[rc])delete A[rc][n];await DB.set('audiodl',A)}
 V.listen=async el=>{
   if(!S.quran)return needData(el);
   const L=S.listen,A=await adl();let ei=0,abort=null,mode='';
   el.innerHTML=`<div class="card"><div class="bar"><select id="rc">${Object.entries(RECITERS).map(([k,v])=>`<option value="${k}"${k===L.reciter?' selected':''}>${v}</option>`).join('')}</select>${surahSel('ls',L.s)}</div>
   <p id="st" class="src">متوقف</p><div class="bar"><button id="pl">تشغيل / استكمال</button><button class="alt" id="pa">إيقاف مؤقت</button><button class="alt" id="sp">إيقاف</button></div></div>
   <div class="card"><h3>الاستماع بدون إنترنت</h3><p id="ds" class="src"></p>
-  <div class="bar"><label>الجودة <select id="qq"><option value="64">اقتصادي (٦٤)</option><option value="128">أعلى (128)</option></select></label></div>
+  <div class="bar"><label>الجودة <select id="qq"><option value="64">اقتصادي (٦٤)</option><option value="128">أعلى (١٢٨)</option></select></label></div>
   <div class="bar"><button id="d1">تنزيل هذه السورة</button><button class="alt" id="dx">حذف هذه السورة</button></div>
   <div class="bar"><button class="alt" id="da">تنزيل القرآن كله لهذا القارئ</button><button class="alt" id="dc" disabled>إلغاء</button><button class="warn" id="dd">حذف تنزيلات هذا القارئ</button></div>
   <div class="note">السور المنزَّلة تعمل من الجهاز بلا إنترنت. غير المنزَّلة تحتاج إنترنت (بث آية بآية). كل قارئ يُنزَّل منفصلًا، والقرآن كله لقارئ واحد قد يتجاوز ١٠٠ ميجا بالجودة الاقتصادية. قد يمسح المتصفح التخزين لو ضاقت مساحة الجهاز.</div></div>`;
   const ays=()=>S.quran[L.s-1].ayahs,have=()=>A[L.reciter]&&A[L.reciter][L.s],cnt=()=>Object.keys(A[L.reciter]||{}).length;
   async function stat(){let u='';try{const e=await navigator.storage.estimate();u=` | المساحة المستخدمة: ${ar(Math.round(e.usage/1048576))} ميجا`}catch{}$('#ds').textContent=`منزَّل لهذا القارئ: ${ar(cnt())} من ١١٤ سورة | هذه السورة: ${have()?'✓ منزَّلة':'غير منزَّلة'}${u}`}
   const setSt=t=>{const s=$('#st');if(s)s.textContent=t};
-  async function playFile(){const c=await AC(),r=await c.match(have());const b=await r.blob();if(furl)URL.revokeObjectURL(furl);furl=URL.createObjectURL(b);
-    if(!audio)audio=new Audio();audio.src=furl;audio.onended=()=>setSt('انتهت السورة');audio.onerror=()=>toast('تعذر تشغيل الملف المحفوظ');audio.ontimeupdate=()=>{if(Math.floor(audio.currentTime)%5===0){L.t=audio.currentTime;save('listen')}};
-    if(L.fs===L.reciter+':'+L.s&&L.t)audio.currentTime=L.t;L.fs=L.reciter+':'+L.s;await audio.play();mode='file';setSt(`${S.quran[L.s-1].name} — من الجهاز (بدون إنترنت)`);return true}
-  function playAyah(){if(!audio)audio=new Audio();const a=ays()[L.i];if(!a)return stop();audio.ontimeupdate=null;audio.src=`https://cdn.islamic.network/quran/audio/128/${eds(L.reciter)[ei]}/${a.g}.mp3`;
+  async function playFile(){const e=ent(A,L.reciter,L.s);if(!e)return false;if(!audio)audio=new Audio();
+    audio.onerror=()=>toast('تعذر تشغيل الملف المحفوظ');audio.onended=()=>setSt('انتهت السورة');let ls=0;audio.ontimeupdate=()=>{if(Date.now()-ls>5000){ls=Date.now();L.t=audio.currentTime;save('listen')}};
+    if(e.t==='opaque'){audio.src=e.u;if(!(navigator.serviceWorker&&navigator.serviceWorker.controller))toast('أعد فتح التطبيق مرة ليعمل التشغيل بدون إنترنت')}
+    else{const c=await AC(),r=await c.match(e.u);if(!r)return false;const b=await r.blob();if(furl)URL.revokeObjectURL(furl);furl=URL.createObjectURL(b);audio.src=furl}
+    const key=L.reciter+':'+L.s;if(L.fs===key&&L.t)audio.currentTime=L.t;L.fs=key;await audio.play();mode='file';setSt(`${S.quran[L.s-1].name} — من الجهاز (بدون إنترنت)`);return true}
+  const cands=()=>{const o=[];for(const ed of eds(L.reciter))for(const br of [128,192,64,48])o.push([ed,br]);const k=(L.ok||{})[L.reciter];if(k)o.unshift(k);return o};
+  function playAyah(){if(!audio)audio=new Audio();const a=ays()[L.i];if(!a)return stop();const cs=cands(),c=cs[Math.min(ei,cs.length-1)];audio.ontimeupdate=null;audio.src=`https://cdn.islamic.network/quran/audio/${c[1]}/${c[0]}/${a.g}.mp3`;
     audio.onended=()=>{L.i++;save('listen');L.i<ays().length?playAyah():(L.i=0,save('listen'),setSt('انتهت السورة'))};
-    audio.onerror=()=>{if(ei<eds(L.reciter).length-1){ei++;playAyah()}else toast('تعذر تشغيل الصوت. تحقق من الاتصال بالإنترنت.')};
-    audio.play().then(()=>{mode='ayah';setSt(`${S.quran[L.s-1].name} — الآية ${ar(L.i+1)} من ${ar(ays().length)} (بث من الإنترنت)`);save('listen')}).catch(()=>toast('تعذر التشغيل'))}
+    audio.onerror=()=>{if(ei<cs.length-1){ei++;playAyah()}else toast('تعذر تشغيل هذا القارئ. تحقق من الاتصال بالإنترنت أو جرّب قارئًا آخر.')};
+    audio.play().then(()=>{mode='ayah';(L.ok||(L.ok={}))[L.reciter]=c;setSt(`${S.quran[L.s-1].name} — الآية ${ar(L.i+1)} من ${ar(ays().length)} (بث من الإنترنت)`);save('listen')}).catch(()=>{if(!audio.error)toast('تعذر التشغيل')})}
   async function play(){if(have()&&await playFile().catch(()=>false))return;playAyah()}
-  function stop(){if(audio){audio.pause();audio.removeAttribute('src')}L.i=0;L.t=0;save('listen');setSt('متوقف')}
+  function stop(){if(audio){audio.onerror=null;audio.pause();audio.removeAttribute('src')}L.i=0;L.t=0;save('listen');setSt('متوقف')}
   $('#rc').onchange=e=>{stop();L.reciter=e.target.value;ei=0;save('listen');stat()};$('#ls').onchange=e=>{stop();L.s=+e.target.value;save('listen');stat()};
   $('#pl').onclick=()=>{audio&&audio.src&&audio.paused&&audio.currentTime>0?audio.play():play()};
   $('#pa').onclick=()=>{if(audio){audio.pause();L.t=audio.currentTime;save('listen')}};$('#sp').onclick=stop;
