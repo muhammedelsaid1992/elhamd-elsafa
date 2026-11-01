@@ -141,14 +141,19 @@ async function recs(){
     if(j.code===200&&Array.isArray(j.data)){const r=j.data.filter(x=>x.type!=='translation'&&x.language==='ar'&&Array.isArray(x.audioLevels)&&x.audioLevels.length).map(x=>({id:x.identifier,name:x.name||x.englishName||x.identifier,levels:x.audioLevels}));if(r.length){await DB.set('reciters',r);return r}}}catch{}finally{clearTimeout(t)}return null};
   const st=await DB.get('reciters',null);if(st&&st.length){pull();return clean(st)}
   return clean((await pull())||FALLBACK)}
-async function dlSurah(rc,n,lv,sig){const A=await adl(),c=await AC();
-  if(lv.includes('surah')){const u=surahUrl(rc,n),r=await fetch(u,{signal:sig});
-    if(r.ok){const cl=+r.headers.get('content-length')||0;await c.put(u,r);const b=await(await c.match(u)).blob();
-      if(b.size<10000||(cl&&b.size!==cl)){await c.delete(u);throw new Error('الملف المنزّل ناقص، أعد المحاولة')}
-      (A[rc]||(A[rc]={}))[n]={t:'surah',u};await DB.set('audiodl2',A);return}
-    if(r.status!==404||!lv.includes('ayah'))throw new Error('رمز الاستجابة '+r.status)}
+const hostOf=u=>{try{return new URL(u).host}catch{return u}};
+async function getRes(urls,sig){let last;for(const u of urls){try{const r=await fetch(u,{signal:sig});if(r.ok)return r;last=new Error(`رمز الاستجابة ${r.status} من ${hostOf(u)}`)}catch(e){if(e.name==='AbortError')throw e;last=new Error(`تعذر الوصول إلى ${hostOf(u)} (${e.message||'منع من المتصفح أو الشبكة'})`)}}throw last}
+async function saveRes(c,key,r){const cl=+r.headers.get('content-length')||0;let n=0;
+  try{if(r.body&&typeof TransformStream!=='undefined'){const ts=new TransformStream({transform(ch,ctl){n+=ch.byteLength;ctl.enqueue(ch)}});await c.put(key,new Response(r.body.pipeThrough(ts),{status:200,headers:{'content-type':'audio/mpeg'}}))}
+    else{const b=await r.blob();n=b.size;await c.put(key,new Response(b,{status:200,headers:{'content-type':'audio/mpeg'}}))}}
+  catch(e){if(e.name==='AbortError')throw e;await c.delete(key).catch(()=>{});throw new Error('تعذر الحفظ على الجهاز: '+(e.message||e))}
+  if(n<2000||(cl&&n!==cl)){await c.delete(key).catch(()=>{});throw new Error('الملف المنزّل ناقص، أعد المحاولة')}}
+async function dlSurah(rc,n,lv,sig){const A=await adl(),c=await AC(),id=encodeURIComponent(rc);
+  if(lv.includes('surah')){const u=surahUrl(rc,n);
+    try{const r=await getRes([u,`https://cdn.islamic.app/quran/audio-surah/${id}/${n}.mp3`],sig);await saveRes(c,u,r);(A[rc]||(A[rc]={}))[n]={t:'surah',u};await DB.set('audiodl2',A);return}
+    catch(e){if(e.name==='AbortError'||!lv.includes('ayah'))throw e}}
   for(const a of S.quran[n-1].ayahs){if(sig.aborted)throw ABORT();const u=ayahUrl(rc,a.g);if(await c.match(u))continue;
-    const r=await fetch(u,{signal:sig});if(!r.ok)throw new Error('الآية '+a.n+': رمز الاستجابة '+r.status);await c.put(u,r)}
+    const r=await getRes([u,`https://cdn.islamic.app/quran/audio/${id}/${a.g}.mp3`],sig);await saveRes(c,u,r)}
   (A[rc]||(A[rc]={}))[n]={t:'ayahs'};await DB.set('audiodl2',A)}
 async function delSurah(rc,n){const A=await adl(),c=await AC(),e=ent(A,rc,n);
   if(e&&e.t==='surah')await c.delete(e.u);if(e&&e.t==='ayahs')for(const a of S.quran[n-1].ayahs)await c.delete(ayahUrl(rc,a.g));
@@ -160,7 +165,7 @@ V.listen=async el=>{
   if(!R.some(x=>x.id===L.reciter)){L.reciter=R[0].id;save('listen')}
   el.innerHTML=`<div class="card"><div class="bar"><select id="rc">${R.map(x=>`<option value="${esc(x.id)}"${x.id===L.reciter?' selected':''}>${esc(x.name)}${x.levels.includes('surah')?'':' (آية بآية)'}</option>`).join('')}</select>${surahSel('ls',L.s)}</div>
   <p id="st" class="src">متوقف</p><div class="bar"><button id="pl">تشغيل / استكمال</button><button class="alt" id="pa">إيقاف مؤقت</button><button class="alt" id="sp">إيقاف</button></div></div>
-  <div class="card"><h3>الاستماع بدون إنترنت</h3><p id="ds" class="src"></p>
+  <div class="card"><h3>الاستماع بدون إنترنت</h3><p id="ds" class="src"></p><p id="er" class="src" style="color:#c33"></p>
   <div class="bar"><button id="d1">تنزيل هذه السورة</button><button class="alt" id="dx">حذف هذه السورة</button></div>
   <div class="bar"><button class="alt" id="da">تنزيل القرآن كله لهذا القارئ</button><button class="alt" id="dc" disabled>إلغاء</button><button class="warn" id="dd">حذف تنزيلات هذا القارئ</button></div>
   <div class="note">السور المنزَّلة تعمل من الجهاز بلا إنترنت، وغير المنزَّلة تحتاج إنترنت. كل قارئ يُنزَّل منفصلًا وقد يحتاج القرآن كله لقارئ واحد مئات الميجابايت. بعض القرّاء تُنزَّل سورهم آيةً آية. قد يمسح المتصفح التخزين لو ضاقت مساحة الجهاز. التنزيلات القديمة من النسخ السابقة لا تُستخدم، فأعد تنزيل ما تحتاجه.</div>${bad.length?`<button class="alt" id="rb">إظهار القرّاء المخفيين (${ar(bad.length)})</button>`:''}</div>`;
@@ -196,9 +201,9 @@ V.listen=async el=>{
   $('#pl').onclick=()=>{audio&&audio.src&&audio.paused&&audio.currentTime>0?audio.play():play()};
   $('#pa').onclick=()=>{if(audio){audio.pause();L.t=audio.currentTime;save('listen')}};$('#sp').onclick=stop;
   const busy=b=>{['d1','dx','da','dd'].forEach(i=>$('#'+i).disabled=b);$('#dc').disabled=!b};
-  async function run(list){abort=new AbortController();busy(true);try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();let k=0;
+  async function run(list){abort=new AbortController();busy(true);$('#er').textContent='';try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();let k=0;
       for(const n of list){if(ent(A,L.reciter,n)){k++;continue}setSt(`جارٍ التنزيل: سورة ${S.quran[n-1].name} (${ar(++k)} من ${ar(list.length)})`);await dlSurah(L.reciter,n,lvl(),abort.signal)}
-      toast('تم التنزيل')}catch(e){toast(e.name==='AbortError'?'تم الإلغاء':e instanceof TypeError?'تعذر الاتصال بالإنترنت':'تعذر التنزيل: '+(e.message||e))}finally{busy(false);setSt('متوقف');stat()}}
+      toast('تم التنزيل')}catch(e){{const m=e.name==='AbortError'?'تم الإلغاء':'تعذر التنزيل: '+(e.message||e);toast(m);$('#er').textContent=e.name==='AbortError'?'':m}}finally{busy(false);setSt('متوقف');stat()}}
   $('#d1').onclick=()=>run([L.s]);$('#da').onclick=()=>{if(confirm('تنزيل القرآن كله لهذا القارئ؟ يحتاج مساحة كبيرة واتصالًا ثابتًا.'))run(Array.from({length:114},(_,i)=>i+1))};
   $('#dc').onclick=()=>abort&&abort.abort();
   $('#dx').onclick=async()=>{await delSurah(L.reciter,L.s);toast('تم الحذف');stat()};
