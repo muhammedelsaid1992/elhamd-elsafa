@@ -152,12 +152,19 @@ async function saveRes(c,key,r){const cl=+r.headers.get('content-length')||0;let
     else{const b=await r.blob();n=b.size;await c.put(key,new Response(b,{status:200,headers:{'content-type':'audio/mpeg'}}))}}
   catch(e){if(e.name==='AbortError')throw e;await c.delete(key).catch(()=>{});throw new Error('تعذر الحفظ على الجهاز: '+(e.message||e))}
   if(n<2000||(cl&&n!==cl)){await c.delete(key).catch(()=>{});throw new Error('الملف المنزّل ناقص، أعد المحاولة')}}
-const HF4=['alafasy','husary','minshawy-murattal','abdul-basit-murattal'];
-const HFMAP={'ar.alafasy':['alafasy-128kbps','alafasy-64kbps'],'ar.husary':['husary-128kbps','husary-64kbps'],'ar.minshawi':['minshawy-murattal-128kbps','minshawy-murattal-64kbps'],'ar.abdulbasit':['abdul-basit-murattal-192kbps','abdul-basit-murattal-64kbps'],'ar.abdulbasitmurattal':['abdul-basit-murattal-192kbps','abdul-basit-murattal-64kbps']};
+const MQ={alafasy:{inc:/alafasy/,exc:/(warsh|mujawwad|translation)/},husary:{inc:/husary/,exc:/(mujawwad|muallim|warsh)/},minshawi:{inc:/minshaw/,exc:/(mujawwad|warsh)/},abdulbasit:{inc:/abdul-?basit/,exc:/(mujawwad|warsh)/}};
+const HFMAP={'ar.alafasy':MQ.alafasy,'ar.husary':MQ.husary,'ar.minshawi':MQ.minshawi,'ar.abdulbasit':MQ.abdulbasit,'ar.abdulbasitmurattal':MQ.abdulbasit};
 const hfUrl=(set,s,a)=>`https://huggingface.co/datasets/maqra-project/${set}/resolve/main/${String(s).padStart(3,'0')}${String(a).padStart(3,'0')}.mp3`;
-async function hfPick(rc,sig){const c=HFMAP[rc];if(!c)return null;S.listen.hf=S.listen.hf||{};if(S.listen.hf[rc])return S.listen.hf[rc];let last;
+const kbps=s=>{const m=s.match(/(\d+)\s*kbps/);return m?+m[1]:0};
+async function hfSets(sig){let l=await DB.get('hfsets',null);if(l&&l.length)return l;
+  const r=await getRes(['https://huggingface.co/api/datasets?author=maqra-project&limit=1000'],sig),j=await r.json();
+  l=(Array.isArray(j)?j:[]).map(x=>String(x.id||x).split('/').pop()).filter(s=>s&&s!=='maqra'&&s!=='ayah-images');
+  if(!l.length)throw new Error('تعذر قراءة قائمة التسجيلات من المصدر');await DB.set('hfsets',l);return l}
+async function hfPick(rc,sig){const q=HFMAP[rc];if(!q)return null;S.listen.hf=S.listen.hf||{};if(S.listen.hf[rc])return S.listen.hf[rc];
+  const c=(await hfSets(sig)).filter(s=>q.inc.test(s)&&!q.exc.test(s)).sort((x,y)=>(kbps(x)||999)-(kbps(y)||999));
+  if(!c.length)throw new Error('لم أجد تسجيلًا لهذا القارئ في مصدر التنزيل');let last;
   for(const set of c){try{const r=await getRes([hfUrl(set,1,1)],sig);await r.arrayBuffer();S.listen.hf[rc]=set;save('listen');return set}catch(e){if(e.name==='AbortError')throw e;last=e}}
-  throw last||new Error('مصدر التنزيل غير متاح')}
+  throw last}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function dlSurah(rc,n,lv,sig){const A=await adl(),c=await AC(),set=await hfPick(rc,sig);
   if(!set)throw new Error('التنزيل للأوفلاين متاح حاليًا للعفاسي والحصري والمنشاوي وعبد الباسط فقط');
@@ -220,7 +227,7 @@ V.listen=async el=>{
   $('#dc').onclick=()=>abort&&abort.abort();
   $('#dx').onclick=async()=>{await delSurah(L.reciter,L.s);toast('تم الحذف');stat()};
   $('#dd').onclick=async()=>{if(!confirm('حذف كل تنزيلات هذا القارئ؟'))return;for(const n of Object.keys(A[L.reciter]||{}))await delSurah(L.reciter,n);toast('تم الحذف');stat()};
-  $('#dt').onclick=async()=>{if(!canDl())return toast('هذا القارئ غير مدعوم للتنزيل');try{if(S.listen.hf)delete S.listen.hf[L.reciter];const set=await hfPick(L.reciter,new AbortController().signal);toast('مصدر التنزيل يعمل ('+set+')');$('#er').textContent=''}catch(e){const m='فشل الفحص: '+(e.message||e);toast(m);$('#er').textContent=m}};
+  $('#dt').onclick=async()=>{if(!canDl())return toast('هذا القارئ غير مدعوم للتنزيل');try{if(S.listen.hf)delete S.listen.hf[L.reciter];await DB.set('hfsets',null);const set=await hfPick(L.reciter,new AbortController().signal);toast('مصدر التنزيل يعمل ('+set+')');$('#er').textContent=''}catch(e){const m='فشل الفحص: '+(e.message||e);toast(m);$('#er').textContent=m}};
   if($('#rb'))$('#rb').onclick=async()=>{await DB.set('badrec',[]);route()};
   stat();
 };
@@ -310,7 +317,8 @@ V.prayer=el=>{
   <div class="card"><h3>الموقع والحساب</h3><div class="bar"><select id="ct"><option value="">اختر مدينة</option>${Object.entries(CITIES).map(([k,v])=>`<option value="${k}">${v[0]}</option>`).join('')}</select><button class="alt" id="gp">موقعي الحالي</button></div>
   <div class="bar"><label>خط العرض <input id="la" type="number" step="0.0001" value="${P.lat}" style="width:110px"></label><label>خط الطول <input id="lo" type="number" step="0.0001" value="${P.lng}" style="width:110px"></label></div>
   <div class="bar"><select id="mt">${Object.entries(METHODS).map(([k,v])=>`<option value="${k}"${k===P.method?' selected':''}>${v}</option>`).join('')}</select><select id="as"><option value="1"${P.asr==1?' selected':''}>العصر: ظل المثل (جمهور)</option><option value="2"${P.asr==2?' selected':''}>العصر: ظل المثلين (حنفي)</option></select><button id="sv">حفظ</button></div>
-  <div class="note">الحساب فلكي يتم على جهازك بدون إنترنت، ولا يُرسل موقعك لأي جهة. قد يختلف دقيقة أو دقيقتين عن التقويم الرسمي لبلدك، فقارنه به. يعتمد على توقيت جهازك، ولا يرسل التطبيق تنبيهات أو أذانًا تلقائيًا.</div></div>`;
+  <div class="note">الحساب فلكي يتم على جهازك بدون إنترنت، ولا يُرسل موقعك لأي جهة. قد يختلف دقيقة أو دقيقتين عن التقويم الرسمي لبلدك، فقارنه به. يعتمد على توقيت جهازك، ولا يرسل التطبيق تنبيهات أو أذانًا تلقائيًا من الصفحة نفسها.</div></div>
+  <div class="card"><h3>تنبيه في وقت كل صلاة</h3><p class="src">نزّل ملف تقويم فيه مواقيت الصلاة الخمس بتنبيه عند كل وقت، وافتحه بتطبيق التقويم (Google Calendar مثلًا) ليُضاف. التنبيه يعمل حتى والتطبيق مغلق. بعد انتهاء المدة نزّل ملفًا جديدًا (احذف القديم من التقويم أولًا لتفادي التكرار).</p><div class="bar"><label>عدد الأيام <select id="icd"><option>7</option><option selected>30</option><option>60</option></select></label><button id="ic">تنزيل ملف التقويم</button></div></div>`;
   function draw(){const now=new Date(),t=prayerDay(now),nx=nextPrayer();
     $('#pt').innerHTML=PN.map(([k,n])=>`<tr${n===nx.n?' style="font-weight:700;color:var(--gold)"':''}><td>${n}</td><td>${t12(t[k])}</td></tr>`).join('');
     $('#nx').textContent=`الصلاة القادمة: ${nx.n} ${t12(nx.h)} (بعد ${leftTxt(nx.left)})`;
@@ -319,6 +327,12 @@ V.prayer=el=>{
   $('#ct').onchange=e=>{const c=CITIES[e.target.value];if(c)setLoc(c[0],c[1],c[2])};
   $('#gp').onclick=()=>{if(!navigator.geolocation)return toast('المتصفح لا يدعم تحديد الموقع');navigator.geolocation.getCurrentPosition(p=>{setLoc('موقعي الحالي',+p.coords.latitude.toFixed(4),+p.coords.longitude.toFixed(4));toast('تم تحديد موقعك')},()=>toast('تعذر تحديد الموقع، اسمح للموقع بالوصول أو اختر مدينة'),{timeout:15000,maximumAge:3600000})};
   $('#sv').onclick=()=>{const la=+$('#la').value,lo=+$('#lo').value;if(!(Math.abs(la)<=65&&Math.abs(lo)<=180))return toast('إحداثيات غير صالحة (الحساب يدعم حتى خط عرض ٦٥)');P.lat=la;P.lng=lo;P.method=$('#mt').value;P.asr=+$('#as').value;if(!CITIES[$('#ct').value])P.name=P.name||'موقع مخصص';save('prayer');toast('تم الحفظ');draw()};
+  $('#ic').onclick=()=>{const days=+$('#icd').value,p2=n=>String(n).padStart(2,'0'),f=x=>`${x.getFullYear()}${p2(x.getMonth()+1)}${p2(x.getDate())}T${p2(x.getHours())}${p2(x.getMinutes())}00`,stamp=new Date().toISOString().replace(/[-:]/g,'').slice(0,15)+'Z';
+    const L=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//hamd-safa//AR','CALSCALE:GREGORIAN','X-WR-CALNAME:مواقيت الصلاة'];let n=0;
+    for(let i=0;i<days;i++){const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()+i);const t=prayerDay(d);
+      for(const [k,nm] of PN){if(k==='sunrise'||!isFinite(t[k]))continue;const m=Math.round(t[k]*60),s=new Date(d.getFullYear(),d.getMonth(),d.getDate(),Math.floor(m/60),m%60),e=new Date(s.getTime()+10*60000);n++;
+        L.push('BEGIN:VEVENT',`UID:${f(s)}-${k}@hamd-safa`,`DTSTAMP:${stamp}`,`DTSTART:${f(s)}`,`DTEND:${f(e)}`,`SUMMARY:صلاة ${nm}`,'BEGIN:VALARM','ACTION:DISPLAY',`DESCRIPTION:صلاة ${nm}`,'TRIGGER:PT0S','END:VALARM','END:VEVENT')}}
+    L.push('END:VCALENDAR');const u=URL.createObjectURL(new Blob([L.join('\r\n')],{type:'text/calendar;charset=utf-8'})),el2=document.createElement('a');el2.href=u;el2.download='mawaqeet-salah.ics';el2.click();setTimeout(()=>URL.revokeObjectURL(u),1e4);toast(`تم إنشاء ${ar(n)} تنبيهًا لمدينة ${P.name}`)};
   draw();window._pt=setInterval(draw,20000);
 };
 const NAV={home:'الرئيسية',mushaf:'حفظ المصحف',quran:'المصحف',tafsir:'التفسير',plan:'الخطة',adhkar:'الأذكار',prayer:'مواقيت الصلاة',tasbih:'التسبيح',hadith:'الأحاديث القدسية',listen:'الاستماع',recite:'التسميع',settings:'الإعدادات'};
