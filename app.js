@@ -132,10 +132,15 @@ const ent=(A,rc,n)=>A[rc]&&A[rc][n];
 const ABORT=()=>new DOMException('تم الإلغاء','AbortError');
 const FALLBACK=[{id:'ar.alafasy',name:'مشاري العفاسي',levels:['ayah','surah']}];
 const PREF=['alafasy','abdulbasit','husary','minshawi'];
+const probe=(u,ms=15000)=>new Promise(res=>{const x=new Audio();let d=0;const f=ok=>{if(d)return;d=1;clearTimeout(t);x.onloadedmetadata=x.oncanplay=x.onerror=null;x.removeAttribute('src');x.load();res(ok)};const t=setTimeout(()=>f(false),ms);x.preload='auto';x.onloadedmetadata=x.oncanplay=()=>f(true);x.onerror=()=>f(false);x.src=u;x.load()});
 async function recs(){
-  const pull=async()=>{const ac=new AbortController(),t=setTimeout(()=>ac.abort(),8000);try{const j=await(await fetch(IAUD+'reciters',{signal:ac.signal})).json();if(j.code===200&&Array.isArray(j.data)){const r=j.data.filter(x=>x.type!=='translation'&&x.language==='ar'&&Array.isArray(x.audioLevels)&&x.audioLevels.length).map(x=>({id:x.identifier,name:x.name||x.englishName||x.identifier,levels:x.audioLevels}));r.sort((p,q)=>{const f=x=>{const k=PREF.findIndex(w=>x.id.includes(w));return k<0?99:k};return f(p)-f(q)});if(r.length){await DB.set('reciters',r);return r}}}catch{}finally{clearTimeout(t)}return null};
-  const st=await DB.get('reciters',null);if(st&&st.length){pull();return st}
-  return(await pull())||FALLBACK}
+  const bad=await DB.get('badrec',[]);
+  const clean=r=>{const m=new Map();for(const x of r){if(bad.includes(x.id))continue;const k=String(x.name).trim(),o=m.get(k);if(!o||x.levels.length>o.levels.length)m.set(k,x)}
+    const o=[...m.values()],f=x=>{const k=PREF.findIndex(w=>x.id.includes(w));return k<0?99:k};o.sort((p,q)=>f(p)-f(q));return o.length?o:FALLBACK};
+  const pull=async()=>{const ac=new AbortController(),t=setTimeout(()=>ac.abort(),8000);try{const j=await(await fetch(IAUD+'reciters',{signal:ac.signal})).json();
+    if(j.code===200&&Array.isArray(j.data)){const r=j.data.filter(x=>x.type!=='translation'&&x.language==='ar'&&Array.isArray(x.audioLevels)&&x.audioLevels.length).map(x=>({id:x.identifier,name:x.name||x.englishName||x.identifier,levels:x.audioLevels}));if(r.length){await DB.set('reciters',r);return r}}}catch{}finally{clearTimeout(t)}return null};
+  const st=await DB.get('reciters',null);if(st&&st.length){pull();return clean(st)}
+  return clean((await pull())||FALLBACK)}
 async function dlSurah(rc,n,lv,sig){const A=await adl(),c=await AC();
   if(lv.includes('surah')){const u=surahUrl(rc,n),r=await fetch(u,{signal:sig});
     if(r.ok){const cl=+r.headers.get('content-length')||0;await c.put(u,r);const b=await(await c.match(u)).blob();
@@ -151,14 +156,14 @@ async function delSurah(rc,n){const A=await adl(),c=await AC(),e=ent(A,rc,n);
 V.listen=async el=>{
   if(!S.quran)return needData(el);
   caches.delete('hamd-audio-v1').catch(()=>{});
-  const L=S.listen,A=await adl(),R=await recs();let abort=null;
+  const L=S.listen,A=await adl(),R=await recs(),bad=await DB.get('badrec',[]);let abort=null;
   if(!R.some(x=>x.id===L.reciter)){L.reciter=R[0].id;save('listen')}
   el.innerHTML=`<div class="card"><div class="bar"><select id="rc">${R.map(x=>`<option value="${esc(x.id)}"${x.id===L.reciter?' selected':''}>${esc(x.name)}${x.levels.includes('surah')?'':' (آية بآية)'}</option>`).join('')}</select>${surahSel('ls',L.s)}</div>
   <p id="st" class="src">متوقف</p><div class="bar"><button id="pl">تشغيل / استكمال</button><button class="alt" id="pa">إيقاف مؤقت</button><button class="alt" id="sp">إيقاف</button></div></div>
   <div class="card"><h3>الاستماع بدون إنترنت</h3><p id="ds" class="src"></p>
   <div class="bar"><button id="d1">تنزيل هذه السورة</button><button class="alt" id="dx">حذف هذه السورة</button></div>
   <div class="bar"><button class="alt" id="da">تنزيل القرآن كله لهذا القارئ</button><button class="alt" id="dc" disabled>إلغاء</button><button class="warn" id="dd">حذف تنزيلات هذا القارئ</button></div>
-  <div class="note">السور المنزَّلة تعمل من الجهاز بلا إنترنت، وغير المنزَّلة تحتاج إنترنت. كل قارئ يُنزَّل منفصلًا وقد يحتاج القرآن كله لقارئ واحد مئات الميجابايت. بعض القرّاء تُنزَّل سورهم آيةً آية. قد يمسح المتصفح التخزين لو ضاقت مساحة الجهاز. التنزيلات القديمة من النسخ السابقة لا تُستخدم، فأعد تنزيل ما تحتاجه.</div></div>`;
+  <div class="note">السور المنزَّلة تعمل من الجهاز بلا إنترنت، وغير المنزَّلة تحتاج إنترنت. كل قارئ يُنزَّل منفصلًا وقد يحتاج القرآن كله لقارئ واحد مئات الميجابايت. بعض القرّاء تُنزَّل سورهم آيةً آية. قد يمسح المتصفح التخزين لو ضاقت مساحة الجهاز. التنزيلات القديمة من النسخ السابقة لا تُستخدم، فأعد تنزيل ما تحتاجه.</div>${bad.length?`<button class="alt" id="rb">إظهار القرّاء المخفيين (${ar(bad.length)})</button>`:''}</div>`;
   const ays=()=>S.quran[L.s-1].ayahs,E=()=>ent(A,L.reciter,L.s),cnt=()=>Object.keys(A[L.reciter]||{}).length,lvl=()=>(R.find(x=>x.id===L.reciter)||{levels:['ayah']}).levels;
   async function stat(){let u='';try{const e=await navigator.storage.estimate();u=` | المساحة المستخدمة: ${ar(Math.round(e.usage/1048576))} ميجا`}catch{}$('#ds').textContent=`منزَّل لهذا القارئ: ${ar(cnt())} من ١١٤ سورة | هذه السورة: ${E()?'✓ منزَّلة':'غير منزَّلة'}${u}`}
   const setSt=t=>{const s=$('#st');if(s)s.textContent=t};
@@ -166,13 +171,26 @@ V.listen=async el=>{
   async function playFile(){const e=E();if(!e||e.t!=='surah')return false;const src=await blobUrl(e.u);if(!src)return false;if(!audio)audio=new Audio();
     audio.onerror=()=>toast('تعذر تشغيل الملف المحفوظ، أعد تنزيل السورة');audio.onended=()=>setSt('انتهت السورة');let ls=0;audio.ontimeupdate=()=>{if(Date.now()-ls>5000){ls=Date.now();L.t=audio.currentTime;save('listen')}};
     audio.src=src;const key=L.reciter+':'+L.s;if(L.fs===key&&L.t)audio.currentTime=L.t;L.fs=key;await audio.play();setSt(`${S.quran[L.s-1].name} — من الجهاز (بدون إنترنت)`);return true}
+  let order=[],oi=0;
+  async function failNow(){toast(navigator.onLine?'تعذر تشغيل هذا القارئ':'لا يوجد إنترنت. نزّل السورة أولًا للاستماع بدونه');
+    if(!navigator.onLine||L.i>0)return;
+    if(!(await probe(surahUrl('ar.alafasy',1))))return;
+    const b=await DB.get('badrec',[]);if(!b.includes(L.reciter)){b.push(L.reciter);await DB.set('badrec',b)}
+    toast('صوت هذا القارئ غير متاح حاليًا، تم إخفاؤه من القائمة');L.reciter='ar.alafasy';await save('listen');route()}
+  function nextMethod(){oi++;oi<order.length?begin():failNow()}
+  function begin(){const m=order[oi];if(!audio)audio=new Audio();audio.onended=null;audio.ontimeupdate=null;audio.onloadedmetadata=null;audio.onerror=nextMethod;
+    if(m==='surah'){const key=L.reciter+':'+L.s,t0=L.fs===key?L.t:0;L.fs=key;audio.src=surahUrl(L.reciter,L.s);
+      audio.onloadedmetadata=()=>{if(t0)audio.currentTime=t0};audio.onended=()=>setSt('انتهت السورة');let ls=0;audio.ontimeupdate=()=>{if(Date.now()-ls>5000){ls=Date.now();L.t=audio.currentTime;save('listen')}};
+      audio.play().then(()=>setSt(`${S.quran[L.s-1].name} — بث من الإنترنت`)).catch(()=>{if(!audio.error)toast('تعذر التشغيل')})}
+    else playAyah()}
   async function playAyah(){if(!audio)audio=new Audio();const a=ays()[L.i];if(!a)return stop();let src=ayahUrl(L.reciter,a.g),local=false;const e=E();
     if(e&&e.t==='ayahs'){const b=await blobUrl(src);if(b){src=b;local=true}}
-    audio.ontimeupdate=null;audio.src=src;
+    audio.ontimeupdate=null;audio.onloadedmetadata=null;audio.src=src;
     audio.onended=()=>{L.i++;save('listen');L.i<ays().length?playAyah():(L.i=0,save('listen'),setSt('انتهت السورة'))};
-    audio.onerror=()=>toast(navigator.onLine?'تعذر تشغيل هذا القارئ، جرّب قارئًا آخر':'لا يوجد إنترنت. نزّل السورة أولًا للاستماع بدونه');
+    audio.onerror=()=>{L.i===0&&!local?nextMethod():toast('تعذر تشغيل الآية، تحقق من الاتصال')};
     audio.play().then(()=>{setSt(`${S.quran[L.s-1].name} — الآية ${ar(L.i+1)} من ${ar(ays().length)} (${local?'من الجهاز':'بث من الإنترنت'})`);save('listen')}).catch(()=>{if(!audio.error)toast('تعذر التشغيل')})}
-  async function play(){if(await playFile().catch(()=>false))return;playAyah()}
+  async function play(){if(await playFile().catch(()=>false))return;const e=E(),lv=lvl();
+    order=e&&e.t==='ayahs'?['ayah']:[...(lv.includes('surah')?['surah']:[]),...(lv.includes('ayah')?['ayah']:[])];if(!order.length)order=['ayah'];oi=0;begin()}
   function stop(){if(audio){audio.onerror=null;audio.pause();audio.removeAttribute('src')}L.i=0;L.t=0;save('listen');setSt('متوقف')}
   $('#rc').onchange=e=>{stop();L.reciter=e.target.value;save('listen');stat()};$('#ls').onchange=e=>{stop();L.s=+e.target.value;save('listen');stat()};
   $('#pl').onclick=()=>{audio&&audio.src&&audio.paused&&audio.currentTime>0?audio.play():play()};
@@ -185,6 +203,7 @@ V.listen=async el=>{
   $('#dc').onclick=()=>abort&&abort.abort();
   $('#dx').onclick=async()=>{await delSurah(L.reciter,L.s);toast('تم الحذف');stat()};
   $('#dd').onclick=async()=>{if(!confirm('حذف كل تنزيلات هذا القارئ؟'))return;for(const n of Object.keys(A[L.reciter]||{}))await delSurah(L.reciter,n);toast('تم الحذف');stat()};
+  if($('#rb'))$('#rb').onclick=async()=>{await DB.set('badrec',[]);route()};
   stat();
 };
 V.recite=el=>{
