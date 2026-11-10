@@ -231,12 +231,14 @@ V.listen=async el=>{
   if($('#rb'))$('#rb').onclick=async()=>{await DB.set('badrec',[]);route()};
   stat();
 };
+async function ayahSrc(rc,s,a){try{const A=await adl(),e=A[rc]&&A[rc][s];if(e&&e.t==='ayahs'){const r=await(await AC()).match(ayahUrl(rc,a.g));if(r)return URL.createObjectURL(await r.blob())}}catch{}return ayahUrl(rc,a.g)}
 V.recite=el=>{
   if(!S.quran)return needData(el);
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;let rec,txt='';
   el.innerHTML=`<div class="note"><b>تنبيه:</b> هذه الميزة تقارن الكلمات المنطوقة بنص المصحف مقارنة تقريبية فقط، ولا تصحح التجويد ولا مخارج الحروف. لا يسجّل التطبيق صوتك ولا يحفظه. لكن التعرف على الكلام في متصفحات مثل Chrome وEdge يتم عبر خدمة المتصفح (قد تُرسل الصوت إلى خوادم Google أو Microsoft) ويحتاج إنترنت.</div>
   ${SR?`<div class="card"><label><input type="checkbox" id="ok"${S.speechOk?' checked':''}> أوافق على استخدام ميكروفون المتصفح للتعرف على الكلام</label>
   <div class="bar">${surahSel('rs',1)}<label>من <select id="rf">${ayahOpts(1,1)}</select></label><label>إلى <select id="rt">${ayahOpts(1,1)}</select></label></div>
+  <label><input type="checkbox" id="vo"${S.settings.voiceFb===false?'':' checked'}> رد صوتي بعد التسميع (ملخص صوتي ثم التلاوة الصحيحة للآيات التي فيها اختلاف)</label>
   <div class="bar"><button id="go">ابدأ التسميع</button><button class="alt" id="end" disabled>أنهِ وقارن</button></div><p id="live" class="src"></p><div id="res"></div></div>`:'<div class="note">متصفحك لا يدعم التعرف على الكلام. استخدم Chrome أو Edge.</div>'}`;
   if(!SR)return;
   const fill=()=>{const s=+$('#rs').value,o=ayahOpts(s,1);$('#rf').innerHTML=o;$('#rt').innerHTML=o};$('#rs').onchange=fill;
@@ -247,9 +249,21 @@ V.recite=el=>{
     rec.onerror=e=>{toast('خطأ في التعرف: '+e.error);fin()};rec.onend=fin;
     try{rec.start();$('#go').disabled=true;$('#end').disabled=false;$('#live').textContent='أنصت إليك...'}catch(x){toast('تعذر بدء الميكروفون')}};
   $('#end').onclick=()=>rec&&rec.stop();
+  let vstop=false,va=null;
+  const stopVoice=()=>{vstop=true;try{speechSynthesis.cancel()}catch{}if(va){va.pause();va=null}};
+  const say=t=>new Promise(res=>{if(!('speechSynthesis' in window)||vstop)return res();const u=new SpeechSynthesisUtterance(t);u.lang='ar-SA';const v=(speechSynthesis.getVoices()||[]).find(x=>/^ar/i.test(x.lang));if(v)u.voice=v;u.onend=u.onerror=()=>res();speechSynthesis.speak(u)});
+  const playA=src=>new Promise(res=>{if(vstop)return res();va=new Audio(src);va.onended=va.onerror=()=>res();va.play().catch(()=>res())});
+  async function voice(r,bad,s){vstop=false;
+    if(!bad.length){await say(`ما شاء الله. نسبة التطابق ${r.pct} بالمئة، ولم أجد اختلافًا.`);return}
+    await say(`نسبة التطابق ${r.pct} بالمئة. وجدت اختلافًا في ${bad.length} ${bad.length===1?'آية':'آيات'}. سأسمعك التلاوة الصحيحة.`);
+    for(const x of bad){if(vstop)break;await say(`الآية رقم ${x.n}`);await playA(await ayahSrc(S.listen.reciter,s,x))}}
+  $('#vo').onchange=e=>{S.settings.voiceFb=e.target.checked;save('settings')};
   function fin(){if(!$('#go'))return;$('#go').disabled=false;$('#end').disabled=true;if(!txt.trim())return;
-    const s=+$('#rs').value,a=+$('#rf').value,b=Math.max(a,+$('#rt').value),exp=S.quran[s-1].ayahs.slice(a-1,b).map(x=>x.t).join(' '),r=Core.compare(exp,txt);
-    $('#res').innerHTML=`<h3>النتيجة التقريبية: ${ar(r.pct)}٪</h3><p class="quran">${r.words.map(w=>`<span class="${w.ok?'ok':'bad'}">${esc(w.w)}</span>`).join(' ')}</p>${r.extra.length?`<p class="src">كلمات منطوقة زائدة أو غير مطابقة: ${esc(r.extra.join('، '))}</p>`:''}<p class="src">الأخضر: مطابقة، الأحمر: لم تُلتقط أو اختلفت.</p>`}
+    const s=+$('#rs').value,a=+$('#rf').value,b=Math.max(a,+$('#rt').value),ays=S.quran[s-1].ayahs.slice(a-1,b),exp=ays.map(x=>x.t).join(' '),r=Core.compare(exp,txt);
+    const cnt=ays.map(x=>x.t.split(/\s+/).filter(w=>Core.norm(w)).length),bad=[];let k=0;
+    ays.forEach((x,i)=>{let m=false;for(let j=0;j<cnt[i];j++)if(r.words[k+j]&&!r.words[k+j].ok)m=true;k+=cnt[i];if(m)bad.push(x)});
+    $('#res').innerHTML=`<h3>النتيجة التقريبية: ${ar(r.pct)}٪</h3><p class="quran">${r.words.map(w=>`<span class="${w.ok?'ok':'bad'}">${esc(w.w)}</span>`).join(' ')}</p>${r.extra.length?`<p class="src">كلمات منطوقة زائدة أو غير مطابقة: ${esc(r.extra.join('، '))}</p>`:''}${bad.length?`<p class="src">آيات فيها اختلاف: ${bad.map(x=>ar(x.n)).join('، ')}</p>`:''}<p class="src">الأخضر: مطابقة، الأحمر: لم تُلتقط أو اختلفت. التلاوة الصحيحة بصوت القارئ المختار في قسم «الاستماع».</p><div class="bar"><button id="vf">🔊 اسمع الملاحظات</button><button class="alt" id="vs">إيقاف الصوت</button></div>`;
+    $('#vf').onclick=()=>voice(r,bad,s);$('#vs').onclick=stopVoice;if($('#vo').checked)voice(r,bad,s)}
 };
 V.settings=el=>{
   const st=S.settings,cnt=k=>all(k).length;
@@ -271,9 +285,9 @@ V.quran=(el,q)=>{
     $('#up').onclick=async e=>{e.target.disabled=true;e.target.textContent='جارٍ التحديث...';try{await dlQuran();toast('تم التحديث');route()}catch(x){e.target.disabled=false;e.target.textContent='إعادة المحاولة';toast('تعذر التحديث: '+x.message)}};return}
   const TH={paper:['ورقي','#fbf6e8','#2a2118','#b8923a'],sage:['أخضر هادئ','#e6efe3','#14301f','#2f7d5b'],sand:['رملي','#efe3cf','#3a2a1a','#a0622d'],night:['ليلي','#12161a','#e9e2cf','#d9b25c'],navy:['أزرق ليلي','#0f1c2e','#dce8ff','#7fb2ff'],amber:['كهرماني','#2b1e12','#f1dcae','#e0a43a']};
   let p=Math.min(604,Math.max(1,+(q.get('p')||S.settings.page||1))),sel=null;
-  el.innerHTML=`<div class="mtool">${surahSel('ms',0)}<label>صفحة <input id="mpn" type="number" min="1" max="604" style="width:80px"></label><span>${Object.entries(TH).map(([k,v])=>`<button class="sw" data-t="${k}" style="background:${v[1]};border-color:${v[3]}" aria-label="${v[0]}" title="${v[0]}"></button>`).join('')}</span></div>
+  el.innerHTML=`<div class="mtool">${surahSel('ms',0)}<label>صفحة <input id="mpn" type="number" min="1" max="604" style="width:80px"></label><span>${Object.entries(TH).map(([k,v])=>`<button class="sw" data-t="${k}" style="background:${v[1]};border-color:${v[3]}" aria-label="${v[0]}" title="${v[0]}"></button>`).join('')}</span><button class="alt" id="fs">ملء الشاشة</button></div>
   <div id="mw" class="mw"><div id="mp" class="mp"></div></div><div id="mac"></div>
-  <div class="bar" style="justify-content:space-between"><button class="alt" id="pv">الصفحة السابقة</button><button id="nx">الصفحة التالية</button></div><p class="src">اسحب بإصبعك من اليسار لليمين للصفحة التالية، ومن اليمين لليسار للسابقة. المصدر: ${SRC_QURAN}. حدود الصفحات كما في مصحف المدينة، وتوزيع الأسطر يتكيف مع حجم الشاشة.</p>`;
+  <div class="bar" style="justify-content:space-between"><button class="alt" id="pv">الصفحة السابقة</button><button class="alt rd-only" id="fx">خروج</button><button id="nx">الصفحة التالية</button></div><p class="src">اسحب بإصبعك من اليسار لليمين للصفحة التالية، ومن اليمين لليسار للسابقة. المصدر: ${SRC_QURAN}. حدود الصفحات كما في مصحف المدينة، وتوزيع الأسطر يتكيف مع حجم الشاشة.</p>`;
   const mw=$('#mw');
   function theme(){const t=TH[S.settings.mtheme]||TH.paper;mw.style.setProperty('--mbg',t[1]);mw.style.setProperty('--mfg',t[2]);mw.style.setProperty('--mac',t[3]);el.querySelectorAll('.sw').forEach(b=>b.classList.toggle('on',b.dataset.t===(S.settings.mtheme||'paper')))}
   function draw(dir){
@@ -285,10 +299,10 @@ V.quran=(el,q)=>{
     const mp=$('#mp');mp.className='mp'+(dir>0?' in-n':dir<0?' in-p':'');
     mp.innerHTML=`<div class="mh"><span>${esc(sf.name)}</span><span>الجزء ${ar(sf.ayahs[f.items[0]].j)}</span></div><div class="mt" id="mt"><div class="mi" id="mi">${h}</div></div><div class="mf">${ar(p)}</div>`;
     $('#ms').value=sf.n;$('#mpn').value=p;theme();fit();$('#mac').innerHTML='';sel=null}
-  function fit(){mw.style.height=Math.max(320,innerHeight-mw.getBoundingClientRect().top-70)+'px';const mt=$('#mt'),mi=$('#mi');if(!mt)return;let lo=12,hi=p<=2?30:36;
+  function fit(){mw.style.height=Math.max(320,innerHeight-mw.getBoundingClientRect().top-60)+'px';const mt=$('#mt'),mi=$('#mi');if(!mt)return;let lo=12,hi=p<=2?36:50;
     for(let k=0;k<9;k++){const m=(lo+hi)/2;mi.style.fontSize=m+'px';mi.offsetHeight>mt.clientHeight?hi=m:lo=m}mi.style.fontSize=lo+'px'}
   function go(n,dir){n=Math.min(604,Math.max(1,n));if(n===p&&dir)return;p=n;S.settings.page=n;save('settings');draw(dir)}
-  $('#nx').onclick=()=>go(p+1,1);$('#pv').onclick=()=>go(p-1,-1);
+  $('#nx').onclick=()=>go(p+1,1);$('#pv').onclick=()=>go(p-1,-1);const tg=()=>{document.body.classList.toggle('rd');setTimeout(fit,60)};$('#fs').onclick=tg;$('#fx').onclick=tg;
   $('#ms').onchange=e=>go(S.quran[e.target.value-1].ayahs[0].p,0);$('#mpn').onchange=e=>go(+e.target.value||p,0);
   el.querySelectorAll('.sw').forEach(b=>b.onclick=()=>{S.settings.mtheme=b.dataset.t;save('settings');theme()});
   let x0,y0;mw.addEventListener('touchstart',e=>{x0=e.touches[0].clientX;y0=e.touches[0].clientY},{passive:true});
@@ -337,9 +351,10 @@ V.prayer=el=>{
 };
 const NAV={home:'الرئيسية',mushaf:'حفظ المصحف',quran:'المصحف',tafsir:'التفسير',plan:'الخطة',adhkar:'الأذكار',prayer:'مواقيت الصلاة',tasbih:'التسبيح',hadith:'الأحاديث القدسية',listen:'الاستماع',recite:'التسميع',settings:'الإعدادات'};
 function route(){const[h,qs]=(location.hash.slice(2)||'home').split('?'),name=V[h]?h:'home';
-  document.onkeydown=null;onresize=null;clearInterval(window._pt);
-  $('#nav').innerHTML=Object.entries(NAV).map(([k,v])=>`<a href="#/${k}"${k===name?' class="on" aria-current="page"':''}>${v}</a>`).join('');
+  document.onkeydown=null;onresize=null;clearInterval(window._pt);document.body.classList.remove('rd');
+  $('#nav').innerHTML=Object.entries(NAV).map(([k,v])=>`<a href="#/${k}"${k===name?' class="on" aria-current="page"':''}>${v}</a>`).join('');$('#nav').classList.remove('open');$('#ov').classList.remove('on');
   const m=$('#view');m.onclick=null;V[name](m,new URLSearchParams(qs||''));m.querySelectorAll('[data-dl]').forEach(b=>b.onclick=async()=>{b.disabled=true;b.textContent='جارٍ التنزيل...';try{await DL[b.dataset.dl]();toast('تم التنزيل والحفظ');route()}catch(x){b.disabled=false;b.textContent='إعادة المحاولة';toast('تعذر التنزيل: '+x.message)}});if(!qs)scrollTo(0,0)}
+$('#mb').onclick=()=>{$('#nav').classList.toggle('open');$('#ov').classList.toggle('on')};$('#ov').onclick=()=>{$('#nav').classList.remove('open');$('#ov').classList.remove('on')};
 addEventListener('hashchange',route);
 if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 load().then(route).catch(e=>{$('#view').innerHTML='<div class="note">تعذر فتح التخزين المحلي: '+esc(e.message||e)+'</div>'});
