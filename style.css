@@ -63,3 +63,5 @@ nav a.on{border-right-color:var(--gold);background:rgba(255,255,255,.09)}
 .rd #mbar{display:none}.rd.menu #mbar,.rd.menu .mtool{display:flex!important;position:fixed;left:0;right:0;z-index:35;background:var(--card);padding:8px;margin:0}
 .rd.menu #mbar{bottom:0}.rd.menu .mtool{bottom:58px;border-top:1px solid var(--bd)}
 .rd #mac{position:fixed;left:6px;right:6px;bottom:8px;z-index:34}.rd.menu #mac{bottom:130px}
+
+.bad[data-p]{cursor:pointer}

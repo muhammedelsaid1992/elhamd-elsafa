@@ -237,7 +237,7 @@ V.recite=el=>{
   el.innerHTML=`<div class="note"><b>تنبيه:</b> هذه الميزة تقارن الكلمات المنطوقة بنص المصحف مقارنة تقريبية فقط، ولا تصحح التجويد ولا مخارج الحروف. لا يسجّل التطبيق صوتك ولا يحفظه. لكن التعرف على الكلام في متصفحات مثل Chrome وEdge يتم عبر خدمة المتصفح (قد تُرسل الصوت إلى خوادم Google أو Microsoft) ويحتاج إنترنت.</div>
   ${SR?`<div class="card"><label><input type="checkbox" id="ok"${S.speechOk?' checked':''}> أوافق على استخدام ميكروفون المتصفح للتعرف على الكلام</label>
   <div class="bar">${surahSel('rs',1)}<label>من <select id="rf">${ayahOpts(1,1)}</select></label><label>إلى <select id="rt">${ayahOpts(1,1)}</select></label></div>
-  <label><input type="checkbox" id="vo"${S.settings.voiceFb===false?'':' checked'}> رد صوتي بالملاحظات فقط (الكلمات التي أخطأت فيها)</label>
+  <label><input type="checkbox" id="vo"${S.settings.voiceFb===false?'':' checked'}> رد صوتي بالملاحظات فقط (ينطق لك الكلمات التي أخطأت فيها)</label>
   <div class="bar"><button id="go">ابدأ التسميع</button><button class="alt" id="end" disabled>أنهِ وقارن</button></div><p id="live" class="src"></p><div id="res"></div></div>`:'<div class="note">متصفحك لا يدعم التعرف على الكلام. استخدم Chrome أو Edge.</div>'}`;
   if(!SR)return;
   const fill=()=>{const s=+$('#rs').value,o=ayahOpts(s,1);$('#rf').innerHTML=o;$('#rt').innerHTML=o};$('#rs').onchange=fill;
@@ -248,22 +248,28 @@ V.recite=el=>{
     rec.onerror=e=>{toast('خطأ في التعرف: '+e.error);fin()};rec.onend=fin;
     try{rec.start();$('#go').disabled=true;$('#end').disabled=false;$('#live').textContent='أنصت إليك...'}catch(x){toast('تعذر بدء الميكروفون')}};
   $('#end').onclick=()=>rec&&rec.stop();
-  let vstop=false;
-  const stopVoice=()=>{vstop=true;try{speechSynthesis.cancel()}catch{}};
+  let vstop=false,va=null;
+  const stopVoice=()=>{vstop=true;try{speechSynthesis.cancel()}catch{}if(va){va.pause();va=null}};
   const say=t=>new Promise(res=>{if(!('speechSynthesis' in window)||vstop)return res();const u=new SpeechSynthesisUtterance(t);u.lang='ar-SA';const v=(speechSynthesis.getVoices()||[]).find(x=>/^ar/i.test(x.lang));if(v)u.voice=v;u.onend=u.onerror=()=>res();speechSynthesis.speak(u)});
-  async function voice(r,notes){vstop=false;const total=notes.reduce((n,x)=>n+x.words.length,0);
+  const wbw=(s,a,p)=>`https://audio.qurancdn.com/wbw/${String(s).padStart(3,'0')}_${String(a).padStart(3,'0')}_${String(p).padStart(3,'0')}.mp3`;
+  const playW=(s,a,p)=>new Promise(res=>{if(vstop)return res(true);const x=va=new Audio(wbw(s,a,p));x.onended=()=>res(true);x.onerror=()=>res(false);x.play().catch(()=>res(false))});
+  async function word(s,a,w){const ok=await playW(s,a,w.p);if(!ok&&!vstop)await say(w.w)}
+  async function voice(r,notes,s){vstop=false;const total=notes.reduce((n,x)=>n+x.words.length,0);
     if(r.pct<30){await say('التطابق ضعيف جدًا. تأكد من اختيار السورة والآيات الصحيحة ثم أعد التسميع.');return}
     if(!total){await say('ما شاء الله، لا توجد ملاحظات.');return}
-    await say(`عندك ${total} ${total===1?'ملاحظة':'ملاحظات'}.`);let sp=0;
-    for(const x of notes){if(vstop||sp>=12)break;const w=x.words.slice(0,12-sp);sp+=w.length;await say(`في الآية ${x.n}: ${w.join('، ')}`)}
+    await say(`عندك ${total} ${total===1?'ملاحظة':'ملاحظات'}. سأنطق لك الكلمات الصحيحة.`);let sp=0;
+    for(const x of notes){if(vstop||sp>=12)break;await say(`في الآية ${x.n}`);
+      for(const w of x.words){if(vstop||sp>=12)break;sp++;await word(s,x.n,w);await sleep(350)}}
     if(total>sp&&!vstop)await say('وهناك ملاحظات أخرى مكتوبة أمامك.')}
   $('#vo').onchange=e=>{S.settings.voiceFb=e.target.checked;save('settings')};
   function fin(){if(!$('#go'))return;$('#go').disabled=false;$('#end').disabled=true;if(!txt.trim())return;
     const s=+$('#rs').value,a=+$('#rf').value,b=Math.max(a,+$('#rt').value),ays=S.quran[s-1].ayahs.slice(a-1,b),exp=ays.map(x=>x.t).join(' '),r=Core.compare(exp,txt);
-    const cnt=ays.map(x=>x.t.split(/\s+/).filter(w=>Core.norm(w)).length),notes=[];let k=0;
-    ays.forEach((x,i)=>{const w=r.words.slice(k,k+cnt[i]).filter(y=>!y.ok).map(y=>y.w);k+=cnt[i];if(w.length)notes.push({n:x.n,words:w})});
-    $('#res').innerHTML=`<h3>النتيجة التقريبية: ${ar(r.pct)}٪</h3><p class="quran">${r.words.map(w=>`<span class="${w.ok?'ok':'bad'}">${esc(w.w)}</span>`).join(' ')}</p>${r.extra.length?`<p class="src">كلمات منطوقة زائدة أو غير مطابقة: ${esc(r.extra.join('، '))}</p>`:''}${notes.length?`<p class="src">آيات فيها ملاحظات: ${notes.map(x=>ar(x.n)).join('، ')}</p>`:''}<p class="src">الأخضر: مطابقة، الأحمر: لم تُلتقط أو اختلفت.</p><div class="bar"><button id="vf">🔊 اسمع الملاحظات</button><button class="alt" id="vs">إيقاف الصوت</button></div>`;
-    $('#vf').onclick=()=>voice(r,notes);$('#vs').onclick=stopVoice;if($('#vo').checked)voice(r,notes)}
+    const cnt=ays.map(x=>x.t.split(/\s+/).filter(w=>Core.norm(w)).length),notes=[],meta=[];let k=0;
+    ays.forEach((x,i)=>{const w=[];for(let j=0;j<cnt[i];j++){const y=r.words[k+j];meta[k+j]={a:x.n,p:j+1};if(y&&!y.ok)w.push({w:y.w,p:j+1})}k+=cnt[i];if(w.length)notes.push({n:x.n,words:w})});
+    $('#res').innerHTML=`<h3>النتيجة التقريبية: ${ar(r.pct)}٪</h3><p class="quran">${r.words.map((w,i)=>`<span class="${w.ok?'ok':'bad'}"${w.ok?'':` data-a="${meta[i].a}" data-p="${meta[i].p}"`}>${esc(w.w)}</span>`).join(' ')}</p>${r.extra.length?`<p class="src">كلمات منطوقة زائدة أو غير مطابقة: ${esc(r.extra.join('، '))}</p>`:''}${notes.length?`<p class="src">آيات فيها ملاحظات: ${notes.map(x=>ar(x.n)).join('، ')}</p>`:''}<p class="src">الأخضر: مطابقة، الأحمر: لم تُلتقط أو اختلفت. اضغط على أي كلمة حمراء لتسمع نطقها الصحيح (يحتاج إنترنت).</p><div class="bar"><button id="vf">🔊 اسمع الملاحظات</button><button class="alt" id="vs">إيقاف الصوت</button></div>`;
+    $('#vf').onclick=()=>voice(r,notes,s);$('#vs').onclick=stopVoice;
+    $('#res').onclick=async e=>{const t=e.target.closest('.bad[data-p]');if(!t)return;stopVoice();vstop=false;await word(s,+t.dataset.a,{p:+t.dataset.p,w:t.textContent})};
+    if($('#vo').checked)voice(r,notes,s)}
 };
 V.settings=el=>{
   const st=S.settings,cnt=k=>all(k).length;
