@@ -54,3 +54,12 @@ nav a.on{border-right-color:var(--gold);background:rgba(255,255,255,.09)}
 .rd-only{display:none}.rd .rd-only{display:inline-block}
 .rd header,.rd nav,.rd #ov,.rd .mtool,.rd .src{display:none!important}.rd{padding-right:0!important}.rd main{padding:4px 6px}.rd .mp{padding:4px 8px}
 @media(prefers-reduced-motion:reduce){nav{transition:none}}
+
+.fab{display:none;position:fixed;top:calc(8px + env(safe-area-inset-top));left:8px;z-index:40;width:38px;height:38px;border-radius:50%;padding:0;margin:0;opacity:.6;font-size:22px;line-height:1}.rd .fab{display:block}
+.rd .mw{position:fixed;inset:0;max-width:none;height:auto!important;border-radius:0;z-index:5}
+.rd .mp{position:relative;border:0;border-radius:0;padding:calc(4px + env(safe-area-inset-top)) 5px 16px}
+.rd .mh{display:none}.rd .mf{position:absolute;bottom:1px;left:0;right:0;font-size:11px;opacity:.7}
+.rd .mi{line-height:1.7}
+.rd #mbar{display:none}.rd.menu #mbar,.rd.menu .mtool{display:flex!important;position:fixed;left:0;right:0;z-index:35;background:var(--card);padding:8px;margin:0}
+.rd.menu #mbar{bottom:0}.rd.menu .mtool{bottom:58px;border-top:1px solid var(--bd)}
+.rd #mac{position:fixed;left:6px;right:6px;bottom:8px;z-index:34}.rd.menu #mac{bottom:130px}
